@@ -5,8 +5,10 @@ Equipe principal do Banco Ágil — compatível com Agno 2.6+, AgentOS.
 Arquitetura:
   - mode="coordinate": o coordenador mantém contexto e decide qual agente acionar.
   - session_state: persiste autenticação e dados do cliente entre turnos.
-  - PostgresDb: sessão/tracing sobrevivem a restarts; storage compartilhado
-    entre instâncias do AgentOS (runtime stateless).
+  - AsyncPostgresDb: sessão/tracing sobrevivem a restarts; storage compartilhado
+    entre instâncias do AgentOS (runtime stateless). Usamos a variante
+    assíncrona porque o AgentOS roda num event loop async (FastAPI) — um
+    PostgresDb síncrono bloqueia o worker inteiro na primeira escrita real.
   - Transições entre agentes são imperceptíveis ao cliente.
 """
 
@@ -15,7 +17,7 @@ from typing import Optional
 
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.db.postgres import PostgresDb
+from agno.db.postgres import AsyncPostgresDb
 
 from banco_agil.config import DB_URL, MAX_AUTH_ATTEMPTS, get_coordinator_model
 from banco_agil.agents import (
@@ -57,7 +59,7 @@ def criar_equipe() -> Team:
         model=get_coordinator_model(),
         members=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
         session_state=_INITIAL_SESSION_STATE.copy(),
-        db=PostgresDb(db_url=DB_URL),
+        db=AsyncPostgresDb(db_url=DB_URL),
         add_history_to_context=True,
         add_session_state_to_context=True,
         num_history_runs=10,

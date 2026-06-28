@@ -21,15 +21,21 @@ SOLICITACOES_CSV = DATA_DIR / "solicitacoes_aumento_limite.csv"
 
 # ── Banco de dados (sessão/tracing do AgentOS) ───────────────────────────────
 def _normalizar_db_url(url: str) -> str:
-    """Garante o dialeto psycopg3 (`postgresql+psycopg://`).
+    """Garante o dialeto assíncrono `psycopg_async` do psycopg3.
+
+    O Team/AgentOS roda num event loop assíncrono (FastAPI); usar um
+    PostgresDb síncrono dentro dele bloqueia o worker inteiro na primeira
+    escrita real (trava o processo, inclusive o /health). O Agno recomenda
+    `AsyncPostgresDb` com `postgresql+psycopg_async://` para esse caso
+    (https://docs.agno.com/database/providers/async-postgres/overview).
 
     O plugin Postgres do Railway (e o `psql` em geral) injeta a URL no
-    formato padrão `postgresql://`, que o SQLAlchemy resolve para o driver
-    `psycopg2` — não instalado neste projeto (usamos `psycopg` v3). Sem essa
-    normalização, a conexão falha com `ModuleNotFoundError: psycopg2`.
+    formato padrão `postgresql://` ou `postgresql+psycopg://` — normalizamos
+    qualquer um desses para o dialeto assíncrono.
     """
-    if url.startswith("postgresql://"):
-        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    for prefixo in ("postgresql+psycopg://", "postgresql://"):
+        if url.startswith(prefixo):
+            return "postgresql+psycopg_async://" + url[len(prefixo):]
     return url
 
 
@@ -38,7 +44,7 @@ def _normalizar_db_url(url: str) -> str:
 DB_URL = _normalizar_db_url(
     os.getenv("DB_URL")
     or os.getenv("DATABASE_URL")
-    or "postgresql+psycopg://banco:agil_dev_pw@localhost:5432/banco_agil"
+    or "postgresql+psycopg_async://banco:agil_dev_pw@localhost:5432/banco_agil"
 )
 
 # ── Modelos LLM (DeepInfra) ──────────────────────────────────────────────────
