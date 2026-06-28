@@ -15,6 +15,8 @@ Arquitetura:
 import re
 from typing import Optional
 
+import banco_agil._agno_patches  # noqa: F401 — aplica patches antes de usar AsyncPostgresDb
+
 from agno.team import Team
 from agno.team.mode import TeamMode
 from agno.db.postgres import AsyncPostgresDb
