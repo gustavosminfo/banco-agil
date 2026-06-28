@@ -22,6 +22,10 @@ agent_os = AgentOS(
     teams=[team],
     tracing=True,
     telemetry=os.getenv("AGNO_TELEMETRY", "true").lower() == "true",
+    # auto_provision_dbs trava no lifespan de startup contra o Postgres do
+    # Railway (mesmo com AsyncPostgresDb) — o AsyncPostgresDb do Team já
+    # cria as tabelas sob demanda na primeira escrita real.
+    auto_provision_dbs=False,
 )
 
 app = agent_os.get_app()
