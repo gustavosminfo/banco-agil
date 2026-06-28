@@ -1,0 +1,125 @@
+# ============================================================
+# Banco Ágil — Stack local de desenvolvimento
+#
+# Serviços:
+#   agent-os   AgentOS (FastAPI) em :8000
+#   postgres   PostgreSQL 16 + pgvector em :5432
+#   streamlit  UI cliente em :8501 (opcional, via perfil)
+#
+# Uso:
+#   docker compose up -d --build           # sobe agent-os + postgres
+#   docker compose up -d --build --profile ui  # inclui streamlit
+#   docker compose exec agent-os python scripts/seed_db.py
+#   docker compose logs -f agent-os
+#   docker compose down -v                 # derruba e apaga volumes
+# ============================================================
+
+name: banco-agil
+
+services:
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: banco-agil-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${DB_USER:-banco}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agil_dev_pw}
+      POSTGRES_DB:       ${DB_NAME:-banco_agil}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Init script: habilita extensão pgvector na criação do banco
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-banco} -d ${DB_NAME:-banco_agil}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - banco-net
+
+  # ── AgentOS (FastAPI) ──────────────────────────────────────
+  agent-os:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime          # usa stage runtime (sem build tools)
+    container_name: banco-agil-agentos
+    restart: unless-stopped
+    env_file:
+      - .env                   # copie de example.env e preencha
+    environment:
+      # Sobrescreve DB_URL para apontar ao container postgres
+      DB_URL: postgresql+psycopg://${DB_USER:-banco}:${DB_PASSWORD:-agil_dev_pw}@postgres:5432/${DB_NAME:-banco_agil}
+      # Desabilitar telemetria Agno em dev
+      AGNO_TELEMETRY: "false"
+      # Porta interna
+      PORT: "8000"
+      # App environment
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+      # Aguardar Postgres ficar saudável
+      WAIT_FOR_DB: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount do código para hot-reload em dev (remover em produção)
+      - ./banco_agil:/app/banco_agil:ro
+      - ./app:/app/app:ro
+      # Mount de dados CSV (evita rebuild a cada mudança de dados)
+      - ./data:/app/data
+      # Volume para SQLite local (fallback / testes sem Postgres)
+      - sqlite_tmp:/app/tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 8s
+      retries: 4
+      start_period: 25s
+    networks:
+      - banco-net
+
+  # ── Streamlit UI (perfil opcional) ────────────────────────
+  streamlit:
+    profiles:
+      - ui
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit    # arquivo separado, se existir
+    container_name: banco-agil-streamlit
+    restart: unless-stopped
+    environment:
+      STREAMLIT_AGENTOS_URL: http://agent-os:8000
+      STREAMLIT_API_KEY: ${AGENTOS_API_KEY:-dev-key}
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./ui:/app/ui:ro
+    depends_on:
+      agent-os:
+        condition: service_healthy
+    command: ["streamlit", "run", "ui/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    networks:
+      - banco-net
+
+# ── Volumes ──────────────────────────────────────────────────
+volumes:
+  pgdata:
+    name: banco-agil-pgdata
+    driver: local
+  sqlite_tmp:
+    name: banco-agil-sqlite-tmp
+    driver: local
+
+# ── Redes ────────────────────────────────────────────────────
+networks:
+  banco-net:
+    name: banco-agil-net
+    driver: bridge
