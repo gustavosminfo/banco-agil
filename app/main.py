@@ -22,6 +22,10 @@ agent_os = AgentOS(
     teams=[team],
     tracing=True,
     telemetry=os.getenv("AGNO_TELEMETRY", "true").lower() == "true",
+    # O PostgresDb do Team já garante a criação das tabelas sob demanda;
+    # o auto-provisionamento assíncrono do AgentOS no lifespan de startup
+    # travava indefinidamente nesta combinação (Postgres do Railway).
+    auto_provision_dbs=False,
 )
 
 app = agent_os.get_app()
