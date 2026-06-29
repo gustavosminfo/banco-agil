@@ -10,8 +10,18 @@ Uso:
 """
 
 import argparse
+import asyncio
 import sys
 import uuid
+
+if sys.platform == "win32":
+    # psycopg em modo assíncrono não funciona com o ProactorEventLoop, que é
+    # o padrão do asyncio no Windows. Em produção (Railway/Linux) isso não
+    # se aplica — esse ajuste é só para rodar `python -m evals` localmente.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore[attr-defined]
+    # O console do Windows usa cp1252 por padrão, que não representa emojis
+    # presentes nas respostas reais dos agentes — força UTF-8 na saída.
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
 
 from agno.eval.agent_as_judge import AgentAsJudgeEval
 
@@ -22,7 +32,7 @@ from evals.cases import CASES, EvalCase
 PASS_RATE_THRESHOLD = 90.0  # % mínimo de casos aprovados (SDD §16.2)
 
 
-def _rodar_conversa(team, prompts: list[str]) -> tuple[str, str]:
+async def _rodar_conversa(team, prompts: list[str]) -> tuple[str, str]:
     """Executa os prompts em sequência numa sessão nova e retorna
     (transcrição completa, última resposta limpa)."""
     session_id = str(uuid.uuid4())
@@ -31,7 +41,8 @@ def _rodar_conversa(team, prompts: list[str]) -> tuple[str, str]:
 
     for prompt in prompts:
         transcricao.append(f"Cliente: {prompt}")
-        run = team.run(prompt, session_id=session_id)
+        # O Team usa AsyncPostgresDb — run() síncrono não é suportado.
+        run = await team.arun(prompt, session_id=session_id)
         resposta = str(run.content) if run.content else ""
         ultima_resposta = limpar_tags_da_resposta(resposta)
         transcricao.append(f"Atendente: {resposta}")
@@ -39,9 +50,10 @@ def _rodar_conversa(team, prompts: list[str]) -> tuple[str, str]:
     return "\n".join(transcricao), ultima_resposta
 
 
-def _rodar_caso(team, caso: EvalCase) -> bool:
+async def _rodar_caso(team, caso: EvalCase) -> bool:
     print(f"\n=== Caso: {caso.name} ===")
-    transcricao, _ = _rodar_conversa(team, caso.prompts)
+    transcricao, _ = await _rodar_conversa(team, caso.prompts)
+    print(f"--- Transcrição ---\n{transcricao}\n-------------------")
 
     judge = AgentAsJudgeEval(
         name=caso.name,
@@ -49,12 +61,28 @@ def _rodar_caso(team, caso: EvalCase) -> bool:
         scoring_strategy="binary",
         model=get_specialist_model(),
         print_summary=True,
+        print_results=True,
     )
-    resultado = judge.run(input="\n".join(caso.prompts), output=transcricao)
+    resultado = await judge.arun(input="\n".join(caso.prompts), output=transcricao)
 
     passou = bool(resultado and resultado.pass_rate >= 100.0)
     print(f"[{'PASSOU' if passou else 'FALHOU'}] {caso.name}")
     return passou
+
+
+async def _main_async(casos: list[EvalCase]) -> float:
+    team = criar_equipe()
+
+    resultados = []
+    for caso in casos:
+        resultados.append((caso.name, await _rodar_caso(team, caso)))
+
+    total = len(resultados)
+    aprovados = sum(1 for _, ok in resultados if ok)
+    taxa = (aprovados / total * 100) if total else 0.0
+
+    print(f"\n=== Resumo: {aprovados}/{total} casos aprovados ({taxa:.1f}%) ===")
+    return taxa
 
 
 def main() -> None:
@@ -71,15 +99,7 @@ def main() -> None:
                 print(f"  - {c.name}")
             sys.exit(1)
 
-    team = criar_equipe()
-
-    resultados = [(caso.name, _rodar_caso(team, caso)) for caso in casos]
-
-    total = len(resultados)
-    aprovados = sum(1 for _, ok in resultados if ok)
-    taxa = (aprovados / total * 100) if total else 0.0
-
-    print(f"\n=== Resumo: {aprovados}/{total} casos aprovados ({taxa:.1f}%) ===")
+    taxa = asyncio.run(_main_async(casos))
 
     if taxa < PASS_RATE_THRESHOLD:
         sys.exit(1)
