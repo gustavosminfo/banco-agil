@@ -38,6 +38,23 @@ traces apareceram no painel.
 
 **Para popular Metrics manualmente:** `curl -X POST <url>/metrics/refresh`.
 
+### Studio: registrado para experimentação, não para produção
+
+`app/main.py` registra os 4 agentes e o `Team` num `Registry`, passado ao
+`AgentOS(registry=...)`. Isso os torna **reutilizáveis como peça** ao
+montar Teams/Workflows novos visualmente no Studio (ex.: testar um
+workflow experimental com `Condition`/`Router` para o fluxo de crédito).
+
+**Decisão deliberada**: não editamos nem publicamos a lógica de
+produção *através* do Studio. As versões do Studio ficam salvas no
+Postgres, não no Git — editar o Team por lá criaria uma segunda fonte de
+verdade divergente do código, e nosso deploy (`criar_equipe()` em
+`app/main.py`) nunca lê versões publicadas no Studio, então editar por
+lá não mudaria o comportamento em produção sem reescrever o
+`app/main.py` para isso. Mantemos a lógica bancária 100% versionada no
+Git, com histórico de commits revisável — importante numa aplicação
+bancária. Use o Studio só para prototipar ideias novas, isoladamente.
+
 **Por que síncrono e não assíncrono?** Tínhamos trocado `PostgresDb` por
 `AsyncPostgresDb` por achar (incorretamente, na época) que isso resolvia
 um travamento de startup em produção. O próprio commit dessa troca já

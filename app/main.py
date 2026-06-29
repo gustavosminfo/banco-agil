@@ -11,7 +11,9 @@ import os
 
 from agno.db.postgres import PostgresDb
 from agno.os import AgentOS
+from agno.registry import Registry
 
+from banco_agil.agents import cambio_agent, credito_agent, entrevista_agent, triagem_agent
 from banco_agil.config import DB_URL
 from banco_agil.team import criar_equipe
 
@@ -19,9 +21,22 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 team = criar_equipe()
 
+# Registra nossos agentes e o Team de produção como peças reutilizáveis no
+# Studio (montar Teams/Workflows NOVOS no Studio, em modo de experimento) —
+# deliberadamente NÃO usamos o Studio para editar/publicar a lógica de
+# produção em si: ela continua 100% definida em código e versionada no Git,
+# para manter trilha de auditoria revisável (PRs), essencial num contexto
+# bancário. Ver docs/runbook.md.
+registry = Registry(
+    name="Banco Ágil",
+    agents=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
+    teams=[team],
+)
+
 agent_os = AgentOS(
     name="Banco Ágil",
     teams=[team],
+    registry=registry,
     # Sem isso, Studio/Approvals/Scheduler/Metrics/Evals ficam indisponíveis
     # no painel do os.agno.com ("pass a db to AgentOS to enable this
     # feature"). PostgresDb síncrono — exigido pelo Studio (Components) e
