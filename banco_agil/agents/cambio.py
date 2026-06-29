@@ -4,7 +4,7 @@ Agente de Câmbio — consulta cotações em tempo real via AwesomeAPI.
 """
 
 from agno.agent import Agent
-from banco_agil.config import get_specialist_model
+from banco_agil.config import get_coordinator_model
 from banco_agil.tools.exchange_tools import consultar_cotacao, listar_moedas_suportadas
 
 
@@ -14,7 +14,12 @@ cambio_agent = Agent(
         "Especialista em câmbio: consulta cotações de moedas estrangeiras em "
         "tempo real e orienta o cliente sobre conversão de valores."
     ),
-    model=get_specialist_model(),
+    # Modelo de raciocínio (não o "specialist"): em produção, o DeepSeek-V3
+    # já deixou de chamar a ferramenta de cotação e respondeu com uma
+    # desculpa inventada — chegando a copiar para o cliente um trecho de
+    # exemplo do próprio prompt interno (mesma falha já corrigida no
+    # Triagem).
+    model=get_coordinator_model(),
     tools=[consultar_cotacao, listar_moedas_suportadas],
     instructions=[
         # ── 1. Identidade ────────────────────────────────────────────────────
@@ -39,10 +44,10 @@ cambio_agent = Agent(
         "Apresente: compra, venda, variação percentual do dia e horário da cotação.",
 
         # ── 4. Formatação da resposta ────────────────────────────────────────────
-        "Formate os valores sempre em R$ com duas casas decimais.",
-        "Exemplo de formatação (não é um valor real — sempre use o retorno da ferramenta): "
-        "'💱 Dólar Americano (USD): Compra R$ 5,28 | Venda R$ 5,30. "
-        "Variação: +0,35% hoje. Cotação em tempo real — 14h22.'",
+        "Formate os valores sempre em R$ com duas casas decimais. Apresente moeda, "
+        "compra, venda, variação percentual do dia e horário, usando exclusivamente "
+        "os valores reais retornados pela ferramenta nesta execução — nunca escreva "
+        "um valor de exemplo ou ilustrativo na resposta ao cliente.",
 
         # ── 5. Moedas não encontradas ────────────────────────────────────────────
         "Se a moeda não for encontrada, informe ao cliente e liste as moedas disponíveis",

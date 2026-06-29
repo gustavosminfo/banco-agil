@@ -4,7 +4,7 @@ Agente de Crédito — consulta de limite e solicitação de aumento.
 """
 
 from agno.agent import Agent
-from banco_agil.config import get_specialist_model
+from banco_agil.config import get_coordinator_model
 from banco_agil.tools.credit_tools import (
     consultar_limite_credito,
     verificar_limite_pelo_score,
@@ -18,7 +18,10 @@ credito_agent = Agent(
         "Especialista em crédito: consulta limites, processa solicitações de aumento "
         "e orienta o cliente sobre elegibilidade com base no score."
     ),
-    model=get_specialist_model(),
+    # Modelo de raciocínio (não o "specialist"): o DeepSeek-V3 demonstrou,
+    # em produção, a mesma falha já corrigida no Triagem — deixar de
+    # chamar a ferramenta real e inventar uma resposta de texto.
+    model=get_coordinator_model(),
     tools=[
         consultar_limite_credito,
         verificar_limite_pelo_score,

@@ -120,19 +120,24 @@ banco-agil/
 
 | Situação | Modelo | Config |
 |----------|--------|--------|
-| Team coordinator e Agente de Entrevista | `Qwen/Qwen3-235B-A22B-Thinking-2507` | `temperature=0.3` |
-| Triagem, Crédito, Câmbio | `deepseek-ai/DeepSeek-V3-0324` | `temperature=0.5` |
+| Team coordinator e os 4 agentes (Triagem, Crédito, Entrevista, Câmbio) | `Qwen/Qwen3-235B-A22B-Thinking-2507` | `temperature=0.3` |
 | Fallback (se model acima falhar) | `meta-llama/Meta-Llama-3.3-70B-Instruct` | `temperature=0.5` |
+
+> **Por que todos no modelo de raciocínio?** O `deepseek-ai/DeepSeek-V3-0324`
+> ("specialist", mais barato) demonstrou em produção, repetidas vezes,
+> deixar de chamar a ferramenta real e inventar uma resposta de texto —
+> primeiro no Triagem (autenticação), depois no Câmbio (cotação,
+> inclusive copiando para o cliente um trecho de exemplo do próprio
+> prompt interno). `get_specialist_model()` continua existindo em
+> `config.py` para uso futuro caso a relação custo/confiabilidade mude
+> (ex.: um modelo specialist com tool-calling mais confiável no catálogo
+> da DeepInfra), mas nenhum agente o usa atualmente.
 
 **Factory functions em `banco_agil/config.py`:**
 ```python
-from banco_agil.config import get_coordinator_model, get_specialist_model
+from banco_agil.config import get_coordinator_model
 
-# Coordinator e Entrevista
 model=get_coordinator_model()
-
-# Triagem, Crédito, Câmbio
-model=get_specialist_model()
 ```
 
 ---
@@ -148,14 +153,14 @@ Agente de <Nome> — <descrição em uma linha>.
 """
 
 from agno.agent import Agent
-from banco_agil.config import get_specialist_model   # ou get_coordinator_model
+from banco_agil.config import get_coordinator_model
 from banco_agil.tools.<modulo> import funcao_a, funcao_b
 
 
 <nome>_agent = Agent(
     name="Agente de <Nome>",         # Nome humano, sem abreviações
     role="<Descrição do papel>",     # Uma frase clara
-    model=get_specialist_model(),    # Escolher conforme tabela acima
+    model=get_coordinator_model(),   # Ver nota na tabela de seleção acima
 
     tools=[funcao_a, funcao_b],      # Apenas tools do escopo deste agente
 
