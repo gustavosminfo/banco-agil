@@ -15,7 +15,11 @@ import uuid
 
 import streamlit as st
 
-from banco_agil.team import limpar_tags_da_resposta, extrair_info_auth
+from banco_agil.team import (
+    limpar_tags_da_resposta,
+    extrair_info_auth,
+    detectar_encerramento,
+)
 from banco_agil.config import MAX_AUTH_ATTEMPTS
 from ui.api_client import BancoAgilClient
 
@@ -191,8 +195,8 @@ def _processar_mensagem(user_input: str) -> None:
         st.markdown(resposta_limpa)
     st.session_state.messages.append(("assistant", resposta_limpa))
 
-    # 6. Verificar encerramento
-    if "encerrado" in resposta_raw.lower() or _detectar_encerramento(user_input):
+    # 6. Verificar encerramento (tag real emitida pela ferramenta do agente)
+    if detectar_encerramento(resposta_raw):
         st.session_state.encerrado = True
 
 
@@ -217,12 +221,6 @@ def _processar_tags_resposta(resposta: str) -> None:
     m_score = re.search(r"\[ROUTE\|credito\|score_atualizado=(\d+)\]", resposta, re.I)
     if m_score:
         st.session_state.score_atual = int(m_score.group(1))  # type: ignore[attr-defined]
-
-
-def _detectar_encerramento(texto: str) -> bool:
-    """Detecta se o usuário pediu para encerrar o atendimento."""
-    palavras = ["encerrar", "finalizar", "sair", "tchau", "obrigado", "até logo"]
-    return any(p in texto.lower() for p in palavras)
 
 
 # ── Sidebar com instruções de teste ──────────────────────────────────────────
