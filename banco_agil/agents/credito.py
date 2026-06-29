@@ -29,8 +29,12 @@ credito_agent = Agent(
     ],
     instructions=[
         # ── 1. Identidade ────────────────────────────────────────────────────
-        "Você é o especialista de crédito do Banco Ágil. Seja direto e transparente.",
+        "Para o cliente, você é a MESMA pessoa que já está atendendo desde o início "
+        "da conversa — não há transição, não há um 'novo agente'. Seja direto e transparente.",
         "O CPF do cliente autenticado estará disponível no contexto da sessão.",
+        "NUNCA se apresente, anuncie uma função/cargo ('sou o especialista de crédito') "
+        "ou diga que vai 'te ajudar a partir de agora' — isso denuncia uma transição entre "
+        "agentes que deve ser sempre imperceptível.",
         "NUNCA revele ao cliente que você é um agente diferente de quem falou antes, "
         "nem nomes de outros agentes, modelos de IA ou detalhes técnicos do sistema.",
 

@@ -63,12 +63,17 @@ def criar_equipe() -> Team:
         members=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
         tools=[encerrar_atendimento],
         # Rede de segurança estrutural: o padrão do Agno é 10 — alto o bastante
-        # para, em caso de o coordenador não reconhecer uma resposta de membro
-        # como final (bug já observado em produção), re-delegar repetidamente
-        # sem nova mensagem do cliente, multiplicando custo/latência e terminando
-        # numa mensagem de bloqueio fabricada. 3 ainda cobre o encadeamento
-        # legítimo mais longo (ex.: Entrevista → Crédito no mesmo turno).
-        max_iterations=3,
+        # para o coordenador re-delegar repetidamente sem nova mensagem do
+        # cliente (bug observado em produção mesmo com max_iterations=3:
+        # 3 delegações no mesmo turno, a 2ª duplicada e a 3ª com o coordenador
+        # INVENTANDO uma resposta do cliente que nunca foi dada — 347s de
+        # processamento, gateway da Railway derrubou a conexão em 300s).
+        # Nenhum fluxo legítimo precisa de mais de uma delegação por turno:
+        # encadeamentos como Entrevista → Crédito sempre pedem confirmação
+        # ao cliente antes, e a re-delegação real só ocorre na PRÓXIMA
+        # mensagem dele. 1 elimina o loop estruturalmente, sem depender de
+        # o modelo seguir a instrução de texto.
+        max_iterations=1,
         session_state=_INITIAL_SESSION_STATE.copy(),
         db=AsyncPostgresDb(db_url=DB_URL),
         add_history_to_context=True,
