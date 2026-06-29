@@ -77,6 +77,14 @@ def criar_equipe() -> Team:
         max_iterations=1,
         session_state=_INITIAL_SESSION_STATE.copy(),
         db=PostgresDb(db_url=DB_URL),
+        # Memória de cliente, escopada por user_id (CPF, repassado pela UI
+        # após autenticação — ver ui/streamlit_app.py). update_memory_on_run
+        # (não enable_agentic_memory) por ser uma única chamada extra
+        # determinística por turno, em vez do "agentic memory token trap"
+        # documentado pelo Agno (custo pode multiplicar 8x conforme memórias
+        # acumulam, já que o agente decide quando chamar a ferramenta de
+        # memória, podendo chamar várias vezes por conversa).
+        update_memory_on_run=True,
         add_history_to_context=True,
         add_session_state_to_context=True,
         num_history_runs=10,
@@ -184,6 +192,10 @@ def criar_equipe() -> Team:
             "informações reais. Nunca responda com uma mensagem vazia: se não houver "
             "nada a acrescentar, repasse a resposta do membro ao cliente.",
             "Em caso de erro de ferramenta, informe o cliente e ofereça alternativas.",
+            "Se houver memórias sobre o cliente de uma conversa anterior (preferências, "
+            "assuntos recorrentes), use-as naturalmente para personalizar o atendimento — "
+            "nunca diga 'de acordo com minha memória' ou cite o mecanismo; aja como se "
+            "simplesmente lembrasse, como um atendente faria.",
         ],
         show_members_responses=False,
         markdown=True,

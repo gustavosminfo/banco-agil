@@ -51,6 +51,13 @@ DB_URL = _normalizar_db_url(
     or "postgresql+psycopg://banco:agil_dev_pw@localhost:5432/banco_agil"
 )
 
+# URL pública do Postgres da Railway, usada apenas por `python -m evals
+# --remote` para persistir os resultados no mesmo banco do AgentOS de
+# produção (popula a aba Evaluation do os.agno.com). Opcional — sem ela,
+# os evals continuam funcionando normalmente, só sem essa persistência.
+_eval_db_url_raw = os.getenv("EVAL_DB_URL")
+EVAL_DB_URL = _normalizar_db_url(_eval_db_url_raw) if _eval_db_url_raw else None
+
 # ── Modelos LLM (DeepInfra) ──────────────────────────────────────────────────
 COORDINATOR_MODEL_ID = os.getenv(
     "COORDINATOR_MODEL_ID",

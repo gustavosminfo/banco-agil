@@ -31,15 +31,19 @@ class BancoAgilClient:
             timeout=600.0,
         )
 
-    def run(self, team_id: str, message: str, session_id: str) -> dict:
+    def run(self, team_id: str, message: str, session_id: str, user_id: str | None = None) -> dict:
         """Executa um turno de conversa contra /teams/{team_id}/runs.
 
         O endpoint do AgentOS espera multipart/form-data (não JSON) — usar
         `data=` em vez de `json=` aqui.
+
+        `user_id` (CPF, depois de autenticado) escopa a memória do cliente —
+        sem ele, todas as conversas compartilhariam o mesmo "usuário"
+        anônimo, misturando memórias entre clientes diferentes.
         """
-        response = self.client.post(
-            f"/teams/{team_id}/runs",
-            data={"message": message, "session_id": session_id, "stream": "false"},
-        )
+        data = {"message": message, "session_id": session_id, "stream": "false"}
+        if user_id:
+            data["user_id"] = user_id
+        response = self.client.post(f"/teams/{team_id}/runs", data=data)
         response.raise_for_status()
         return response.json()

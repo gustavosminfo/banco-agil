@@ -38,13 +38,19 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
 
 import httpx
+from agno.db.postgres import PostgresDb
 from agno.eval.agent_as_judge import AgentAsJudgeEval
 
-from banco_agil.config import get_specialist_model
+from banco_agil.config import EVAL_DB_URL, get_specialist_model
 from banco_agil.team import criar_equipe, limpar_tags_da_resposta
 from evals.cases import CASES, EvalCase
 
 PASS_RATE_THRESHOLD = 90.0  # % mínimo de casos aprovados (SDD §16.2)
+
+# Se configurado, persiste os resultados no mesmo Postgres do AgentOS de
+# produção — populando a aba Evaluation do os.agno.com. Opcional: sem
+# EVAL_DB_URL, os evals funcionam normalmente, só sem essa persistência.
+_EVAL_DB = PostgresDb(db_url=EVAL_DB_URL) if EVAL_DB_URL else None
 
 
 async def _rodar_conversa_local(team, prompts: list[str]) -> list[str]:
@@ -106,6 +112,7 @@ async def _rodar_caso(caso: EvalCase, team=None, client: httpx.AsyncClient | Non
             criteria=caso.criteria,
             scoring_strategy="binary",
             model=get_specialist_model(),
+            db=_EVAL_DB,
         )
         try:
             resultado = await judge.arun(input="\n".join(caso.prompts), output=saida_para_juiz)
@@ -164,6 +171,11 @@ def main() -> None:
         help="Roda contra o AgentOS real (AGENTOS_URL) em vez de um Team local",
     )
     args = parser.parse_args()
+
+    print(
+        "Persistência de evals: "
+        + ("ATIVA (EVAL_DB_URL configurada)" if _EVAL_DB else "desligada (defina EVAL_DB_URL para ativar)")
+    )
 
     casos = CASES
     if args.case:

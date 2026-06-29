@@ -178,6 +178,7 @@ def _processar_mensagem(user_input: str) -> None:
                     team_id=TEAM_ID,
                     message=user_input,
                     session_id=st.session_state.session_id,
+                    user_id=st.session_state.get("cpf_cliente"),
                 )
                 resposta_raw: str = run.get("content", "")
             except Exception as exc:

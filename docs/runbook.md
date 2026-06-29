@@ -29,9 +29,14 @@ traces apareceram no painel.
 | Aba | Status | Motivo |
 |---|---|---|
 | Chat, Traces | ✅ Habilitado | Funciona desde a conexão inicial (item acima). |
-| Approvals, Scheduler, Metrics, Evaluation, Studio | ✅ Habilitado | `app/main.py` passa `db=PostgresDb(...)` ao `AgentOS(...)` (antes só o `Team` tinha banco próprio). Síncrono — exigido especificamente pelo Studio (Components), que rejeita um `AsyncBaseDb`. Ao acessar via API diretamente (não pela UI), pode ser necessário passar `?db_id=...` — há 2 bancos registrados agora (Team + AgentOS). Ver nota abaixo sobre por que voltamos ao síncrono. |
+| Approvals, Scheduler, Studio | ✅ Habilitado | `app/main.py` passa `db=PostgresDb(...)` ao `AgentOS(...)` (antes só o `Team` tinha banco próprio). Síncrono — exigido especificamente pelo Studio (Components), que rejeita um `AsyncBaseDb`. |
+| Metrics | ✅ Habilitado | Além do `db=` acima, é uma agregação que precisa ser disparada manualmente: `POST /metrics/refresh`. Sem isso, fica vazio (`updated_at: null`) mesmo com sessões reais registradas. |
+| Evaluation | ✅ Habilitado | Nossos evals (`evals/cases.py`) rodavam via `AgentAsJudgeEval` direto em Python, sem nunca escrever no banco do AgentOS. `evals/__main__.py` agora passa `db=PostgresDb(db_url=EVAL_DB_URL)` ao `AgentAsJudgeEval` quando `EVAL_DB_URL` está configurada (`.env`) — usa a `DATABASE_PUBLIC_URL` do plugin Postgres da Railway para escrever no mesmo banco que o AgentOS lê. |
+| Memory | ✅ Habilitado | `Team(update_memory_on_run=True)` em `banco_agil/team.py`, escopado por `user_id` (o CPF do cliente, repassado por `ui/streamlit_app.py` depois da autenticação via `[AUTH_OK]`). Escolhido em vez de `enable_agentic_memory` para evitar o "agentic memory token trap" documentado pelo Agno (custo pode multiplicar 8x conforme memórias acumulam). |
 | Knowledge | ❌ Indisponível | Exige uma instância de `Knowledge` (base vetorial via pgvector + embedder) — desenvolvimento novo, não apenas configuração. Não é requisito do desafio técnico (sem RAG no escopo atual). |
 | Learning | ❌ Indisponível | Exige `LearningMachine` configurado nos agentes — mesma situação do Knowledge, fora do escopo do desafio. |
+
+**Para popular Metrics manualmente:** `curl -X POST <url>/metrics/refresh`.
 
 **Por que síncrono e não assíncrono?** Tínhamos trocado `PostgresDb` por
 `AsyncPostgresDb` por achar (incorretamente, na época) que isso resolvia
