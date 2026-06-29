@@ -22,9 +22,10 @@ class BancoAgilClient:
         self.client = httpx.Client(
             base_url=agentos_url,
             headers=headers,
-            # Modelos "Thinking" (coordinator/Triagem/Entrevista) podem levar mais de
-            # um minuto por turno — timeout curto demais derruba a conversa no meio.
-            timeout=180.0,
+            # Modelos "Thinking" (coordinator/Triagem/Entrevista) já levaram mais de
+            # 200s em produção — 280s fica pouco abaixo do limite de gateway do
+            # Railway (300s), evitando cortar a conversa no meio.
+            timeout=280.0,
         )
 
     def run(self, team_id: str, message: str, session_id: str) -> dict:
