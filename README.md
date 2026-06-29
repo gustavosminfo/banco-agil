@@ -391,3 +391,13 @@ Fluxo de **rejeição + entrevista**: Bruno (450 → máx. R$ 2k) ou Daniel (380
   chave, restore de backup, rollback de deploy)
 - [`AGENTS.md`](AGENTS.md) — guia para desenvolvimento assistido por IA
   neste repositório
+- [`.claude/skills/agno/`](.claude/skills/agno/) — Skill Agno para Claude
+  Code (SKILL.md + 7 referências: agents, teams, workflows, mcp, tools,
+  learning, models). Instalada manualmente copiando o conteúdo de
+  [agno-agi/agno-skills](https://github.com/agno-agi/agno-skills), já que
+  `npx` não está disponível neste ambiente Windows (mesma restrição que
+  levou ao deploy via API direta da Railway em vez do CLI).
+- [`.mcp.json`](.mcp.json) — MCP server `agno-docs` (`https://docs.agno.com/mcp`,
+  transporte `streamable-http`), equivalente a
+  `claude mcp add --transport http agno-docs https://docs.agno.com/mcp`
+  (rodado manualmente como JSON declarativo pelo mesmo motivo acima).

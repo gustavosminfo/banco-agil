@@ -2,7 +2,8 @@
 .env.railway
 .venv/
 keys/
-.claude/
+.claude/*
+!.claude/skills/
 __pycache__/
 *.pyc
 .pytest_cache/
