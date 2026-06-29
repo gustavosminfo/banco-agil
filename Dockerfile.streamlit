@@ -1,0 +1,61 @@
+# ============================================================
+# Banco Ágil — UI Streamlit (cliente do AgentOS via REST)
+# ============================================================
+
+FROM python:3.11-slim AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LANG=C.UTF-8
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+RUN pip install --upgrade pip setuptools wheel && pip install -e ".[prod]"
+
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 \
+    AGNO_TELEMETRY=false \
+    PORT=8501
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+RUN groupadd -r agno && useradd -r -g agno -d /app -s /sbin/nologin agno
+
+# ui/streamlit_app.py importa banco_agil.team (limpar_tags_da_resposta,
+# extrair_info_auth) — que por sua vez carrega os 4 agentes e suas tools.
+# Esse container nunca chama criar_equipe()/Postgres, mas o import exige
+# DEEPINFRA_API_KEY válida e data/ presente para não falhar na carga.
+COPY --chown=agno:agno banco_agil/   ./banco_agil/
+COPY --chown=agno:agno ui/           ./ui/
+COPY --chown=agno:agno data/         ./data/
+
+USER agno
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/_stcore/health || exit 1
+
+EXPOSE ${PORT}
+
+CMD ["sh", "-c", "streamlit run ui/streamlit_app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true"]
