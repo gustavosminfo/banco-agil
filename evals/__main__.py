@@ -97,18 +97,36 @@ async def _rodar_caso(caso: EvalCase, team=None, client: httpx.AsyncClient | Non
     # nosso script (que o juiz tende a confundir com "metadado exposto").
     saida_para_juiz = "\n\n".join(respostas_limpas)
 
-    judge = AgentAsJudgeEval(
-        name=caso.name,
-        criteria=caso.criteria,
-        scoring_strategy="binary",
-        model=get_specialist_model(),
-    )
-    resultado = await judge.arun(input="\n".join(caso.prompts), output=saida_para_juiz)
+    # O modelo-juiz (specialist) ocasionalmente retorna um JSON malformado
+    # para o schema esperado (lista em vez de objeto) — tenta de novo antes
+    # de desistir, em vez de derrubar a suíte inteira por um caso só.
+    resultado = None
+    for tentativa in range(2):
+        judge = AgentAsJudgeEval(
+            name=caso.name,
+            criteria=caso.criteria,
+            scoring_strategy="binary",
+            model=get_specialist_model(),
+        )
+        try:
+            resultado = await judge.arun(input="\n".join(caso.prompts), output=saida_para_juiz)
+            break
+        except Exception as exc:
+            print(f"[AVISO] Juiz falhou na tentativa {tentativa + 1} para {caso.name}: {exc}")
 
     passou = bool(resultado and resultado.pass_rate >= 100.0)
     motivo = resultado.results[0].reason if resultado and resultado.results else "(sem motivo)"
     print(f"[{'PASSOU' if passou else 'FALHOU'}] {caso.name} — {motivo}")
     return passou
+
+
+async def _rodar_caso_seguro(caso: EvalCase, **kwargs) -> bool:
+    """Garante que uma falha inesperada num caso não derrube a suíte inteira."""
+    try:
+        return await _rodar_caso(caso, **kwargs)
+    except Exception as exc:
+        print(f"[ERRO] Caso {caso.name} falhou com exceção: {exc}")
+        return False
 
 
 async def _main_async(casos: list[EvalCase], remote: bool) -> float:
@@ -122,7 +140,7 @@ async def _main_async(casos: list[EvalCase], remote: bool) -> float:
         # turnos com modelos "Thinking" já levaram mais de 200s em produção.
         async with httpx.AsyncClient(base_url=agentos_url, headers=headers, timeout=280.0) as client:
             for caso in casos:
-                resultados.append(await _rodar_caso(caso, client=client))
+                resultados.append(await _rodar_caso_seguro(caso, client=client))
     else:
         team = criar_equipe()
         for caso in casos:
