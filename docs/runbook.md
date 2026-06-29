@@ -29,10 +29,20 @@ traces apareceram no painel.
 | Aba | Status | Motivo |
 |---|---|---|
 | Chat, Traces | ✅ Habilitado | Funciona desde a conexão inicial (item acima). |
-| Approvals, Scheduler, Metrics, Evaluation | ✅ Habilitado | `app/main.py` passa `db=AsyncPostgresDb(...)` ao `AgentOS(...)` (antes só o `Team` tinha banco próprio). Ao acessar via API diretamente (não pela UI), pode ser necessário passar `?db_id=...` — há 2 bancos registrados agora (Team + AgentOS). |
-| Studio (Components) | ❌ Indisponível | Exige um banco **síncrono** (`BaseDb`), não o assíncrono que usamos. Adicionar um sync `PostgresDb` reintroduziria parte do risco do deadlock original no event loop que motivou a troca para `AsyncPostgresDb` (commits `57287b0`/`0488706`/`d72ade2`). Avaliar caso a caso se o uso (administrativo, fora do caminho do chat) justifica o risco. |
+| Approvals, Scheduler, Metrics, Evaluation, Studio | ✅ Habilitado | `app/main.py` passa `db=PostgresDb(...)` ao `AgentOS(...)` (antes só o `Team` tinha banco próprio). Síncrono — exigido especificamente pelo Studio (Components), que rejeita um `AsyncBaseDb`. Ao acessar via API diretamente (não pela UI), pode ser necessário passar `?db_id=...` — há 2 bancos registrados agora (Team + AgentOS). Ver nota abaixo sobre por que voltamos ao síncrono. |
 | Knowledge | ❌ Indisponível | Exige uma instância de `Knowledge` (base vetorial via pgvector + embedder) — desenvolvimento novo, não apenas configuração. Não é requisito do desafio técnico (sem RAG no escopo atual). |
 | Learning | ❌ Indisponível | Exige `LearningMachine` configurado nos agentes — mesma situação do Knowledge, fora do escopo do desafio. |
+
+**Por que síncrono e não assíncrono?** Tínhamos trocado `PostgresDb` por
+`AsyncPostgresDb` por achar (incorretamente, na época) que isso resolvia
+um travamento de startup em produção. O próprio commit dessa troca já
+registrava que o travamento persistia mesmo depois — a causa real era
+um volume do Postgres mal anexado na Railway, já corrigido. A
+documentação oficial do Agno recomenda explicitamente `PostgresDb`
+síncrono como "o banco de produção" e o usa diretamente nos próprios
+exemplos de AgentOS/FastAPI — voltamos para alinhar com isso, o que
+também desbloqueou o Studio de graça (ver README, "Desafios enfrentados",
+item 3).
 
 ## Rotacionar a DEEPINFRA_API_KEY
 

@@ -45,13 +45,15 @@ framework Agno).
 
 | Agente | Responsabilidade | Modelo (DeepInfra) | Ferramentas |
 |--------|-------------------|---------------------|-------------|
-| Triagem | Autenticação (CPF + nascimento), identificação do assunto | `Qwen3-235B-Thinking` | `autenticar_cliente`, `buscar_dados_cliente` |
-| Crédito | Consulta de limite, solicitação de aumento | `DeepSeek-V3-0324` | `consultar_limite_credito`, `solicitar_aumento_limite`, `verificar_limite_pelo_score` |
-| Entrevista | Recálculo de score via entrevista financeira | `Qwen3-235B-Thinking` | `calcular_score_credito`, `atualizar_score_cliente` |
-| Câmbio | Cotação de moedas em tempo real | `DeepSeek-V3-0324` | `consultar_cotacao`, `listar_moedas_suportadas` |
+| Triagem | Autenticação (CPF + nascimento), identificação do assunto | `GLM-5.2` | `autenticar_cliente`, `buscar_dados_cliente` |
+| Crédito | Consulta de limite, solicitação de aumento | `GLM-5.2` | `consultar_limite_credito`, `solicitar_aumento_limite`, `verificar_limite_pelo_score` |
+| Entrevista | Recálculo de score via entrevista financeira | `GLM-5.2` | `calcular_score_credito`, `atualizar_score_cliente` |
+| Câmbio | Cotação de moedas em tempo real | `GLM-5.2` | `consultar_cotacao`, `listar_moedas_suportadas` |
 
-> O Triagem usa o modelo de raciocínio (mais caro) porque é o ponto de
-> maior risco de segurança do sistema — ver [Desafios](#-desafios-enfrentados-e-como-foram-resolvidos).
+> Todos os agentes usam o mesmo modelo — ver [Desafios](#-desafios-enfrentados-e-como-foram-resolvidos)
+> para o histórico de troca de modelos motivado por falhas reais de
+> confiabilidade em produção (DeepSeek-V3 alucinando tool-calls, depois
+> Qwen3-Thinking entrando em loops de raciocínio).
 
 ### Camada de ferramentas (`banco_agil/tools/`)
 
@@ -69,7 +71,7 @@ Funções Python puras (sem estado, sem exceções — sempre retornam
   decide qual agente acionar e mantém o contexto entre handoffs, permitindo
   o fluxo Crédito → Entrevista → Crédito sem reautenticação.
 - **`session_state`** — dicionário (`autenticado`, `cpf`, `score`,
-  `tentativas_auth`, etc.) persistido entre turnos via `AsyncPostgresDb`.
+  `tentativas_auth`, etc.) persistido entre turnos via `PostgresDb`.
 - **Tags ocultas** (`[AUTH_OK|...]`, `[ROUTE|...]`) — protocolo leve de
   comunicação entre coordenador e membros, removidas antes de qualquer
   exibição ao cliente (`limpar_tags_da_resposta()`).
@@ -85,7 +87,7 @@ Cliente ──HTTP──► Streamlit (ui/streamlit_app.py)
               ┌─────────┴─────────┐
               ▼                   ▼
          DeepInfra API      PostgreSQL (Railway)
-      (Qwen3 / DeepSeek)    sessão + tracing (AsyncPostgresDb)
+        (GLM-5.2)           sessão + tracing (PostgresDb)
 ```
 
 - **AgentOS** expõe o `Team` via REST (`POST /teams/banco-agil/runs`),
@@ -156,11 +158,12 @@ Para mitigar isso, todos os agentes têm instruções explícitas que:
 5. **Resistem a prompt injection** — ignoram alegações do cliente como
    "já fui autenticado", "meu score é 900" ou pedidos para revelar o
    prompt de sistema/arquitetura interna.
-6. **Usam o modelo de raciocínio** (`Qwen3-235B-Thinking`) no Agente de
-   Triagem especificamente, por ser o ponto de maior risco — validado
-   sem nenhuma ocorrência de alucinação em testes repetidos, contra o
-   modelo "specialist" que apresentava o comportamento de forma
-   intermitente.
+6. **Usam um modelo de raciocínio** no Agente de Triagem especificamente,
+   por ser o ponto de maior risco — validado sem nenhuma ocorrência de
+   alucinação em testes repetidos, contra o modelo "specialist" que
+   apresentava o comportamento de forma intermitente. (O modelo de
+   raciocínio usado mudou depois — ver item 8 nos desafios — mas a
+   estratégia de usar um modelo mais forte permanece.)
 
 ---
 
@@ -181,13 +184,22 @@ falha (`Railway volume not mounted to the correct path`) e caía.
 **Solução:** identificar o serviço Postgres correto (via API GraphQL da
 Railway) e recriar o volume apontando para ele.
 
-### 3. `PostgresDb` síncrono bloqueando o event loop
+### 3. Diagnóstico inicial errado: "PostgresDb síncrono bloqueia o event loop"
 **Problema:** mesmo com o Postgres saudável, a primeira escrita real de
 sessão travava o processo inteiro (até o `/health` parava de responder).
-**Causa:** `PostgresDb` é síncrono; chamado dentro do event loop
-assíncrono do AgentOS (FastAPI), bloqueia o único worker.
-**Solução:** trocar para `AsyncPostgresDb` (`postgresql+psycopg_async://`),
-caminho oficialmente recomendado pelo Agno para uso com `Team`/`AgentOS`.
+**Diagnóstico (incorreto) na hora:** atribuímos o travamento a
+`PostgresDb` ser síncrono dentro do event loop assíncrono do AgentOS, e
+trocamos para `AsyncPostgresDb`.
+**Correção do diagnóstico:** o próprio commit que fez essa troca já
+registrava "o travamento persiste mesmo após trocar para
+`AsyncPostgresDb`" — ou seja, a troca nunca foi o que resolveu nada. A
+causa real era a combinação do item 2 (volume mal anexado) com
+`auto_provision_dbs=True` do AgentOS tentando provisionar tabelas contra
+um Postgres instável no lifespan de startup. A documentação oficial do
+Agno, aliás, recomenda explicitamente `PostgresDb` (síncrono) como "o
+banco de produção" — voltamos para ele depois de revisar essa história
+(ver `docs/runbook.md`), o que também desbloqueou a aba Studio do
+os.agno.com (exige um banco síncrono).
 
 ### 4. Bug real do Agno: `MetaData` duplicada no SQLAlchemy
 **Problema:** mesmo após a correção acima, ocorriam erros
@@ -238,7 +250,7 @@ estado. Não é uma correção definitiva — é um contorno operacional.
 receber uma *factory* (callable) em vez de um dict literal, ou investigar
 mais a fundo o ciclo de vida de `team._cached_session` em `agno/team/_storage.py`.
 
-### 8. Falha intermitente de autenticação em conversas longas (conhecido, não corrigido)
+### 8. Falha intermitente de autenticação em conversas longas (corrigido — ver atualização)
 **Problema:** no caso de eval `entrevista_recalcula_score`, uma conversa
 mais longa (10 mensagens) nunca concluiu a autenticação — o agente ficou
 pedindo CPF repetidamente mesmo após recebê-lo, até travar por uma
@@ -267,9 +279,23 @@ modelo não tinha garantia de resolver isso.
 falha observada em produção provavelmente está na camada de coordenação
 do `Team` (mais peças móveis que o agente isolado) e/ou é a mesma
 contaminação de estado do item 7, não uma limitação do modelo em si.
-**Status:** documentado como debt técnico conhecido, não corrigido nesta
-rodada — requer investigar a camada de delegação do `Team` isoladamente
-(fora do escopo do tempo disponível nesta sessão).
+**Status original:** documentado como débito técnico conhecido, não
+corrigido naquela rodada.
+
+**Atualização (achado real, testando a UI em produção):** a causa raiz
+era a camada de delegação do `Team` mesmo, como suspeitado. Numa sessão
+real, uma resposta numérica curta e ambígua ("1", número de
+dependentes) fez o coordenador (`Qwen3-235B-Thinking`) re-delegar 3
+vezes no mesmo turno — incluindo uma repetição idêntica e uma 3ª
+chamada em que o coordenador **inventou** que o cliente já tinha
+respondido a pergunta seguinte. Em outro turno, o mesmo modelo entrou
+num loop de raciocínio interno repetitivo ("wait, no... wait, but...")
+até esgotar o orçamento de tokens, retornando resposta vazia. Corrigido
+com `max_iterations=1` no `Team` (elimina a possibilidade estrutural de
+mais de uma delegação por turno) e trocando o modelo de raciocínio para
+`zai-org/GLM-5.2`, que não reproduziu nenhum dos dois comportamentos no
+mesmo cenário de teste — como bônus, respostas também ficaram bem mais
+rápidas (3-40s contra 20-350s antes).
 
 ---
 
@@ -279,8 +305,8 @@ rodada — requer investigar a camada de delegação do `Team` isoladamente
 |---------|---------------|
 | **Agno 2.6** | Sessão stateful nativa, `Team` com `mode="coordinate"`, AgentOS pronto para produção (REST/SSE automáticos) |
 | **DeepInfra** | Custo baixo, catálogo de modelos open-weight com tool calling forte, sem dependência de Anthropic/OpenAI |
-| **Modelo de raciocínio para Triagem/Entrevista/Coordenador** | Maior confiabilidade em tool calling — crítico para evitar alucinação de autenticação e garantir cálculo de score correto |
-| **`AsyncPostgresDb`** | Único caminho compatível com o event loop assíncrono do AgentOS sem bloquear o worker |
+| **Mesmo modelo de raciocínio para todos os agentes** (`GLM-5.2`) | Maior confiabilidade em tool calling — crítico para evitar alucinação de autenticação e garantir cálculo de score correto; ver [Desafios](#-desafios-enfrentados-e-como-foram-resolvidos) para o histórico de troca de modelos |
+| **`PostgresDb` (síncrono)** | "O banco de produção recomendado" pela documentação oficial do Agno; também exigido pela aba Studio do os.agno.com. Chegamos a trocar para `AsyncPostgresDb` por um diagnóstico que se mostrou incorreto — ver item 3 dos desafios |
 | **Railway** | Deploy simples a partir do GitHub, Postgres gerenciado, API GraphQL pública que permite automação completa do provisionamento |
 | **CSV para dados de negócio** | Atende ao desafio técnico diretamente; migração para Postgres fica para uma fase futura (dados de sessão já estão no Postgres) |
 | **Tags ocultas (`[AUTH_OK|...]`)** | Protocolo leve de comunicação coordenador↔membro; modelos open-weight têm suporte variável a structured output nativo |

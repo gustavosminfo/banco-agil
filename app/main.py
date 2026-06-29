@@ -9,7 +9,7 @@ Execução local:
 import logging
 import os
 
-from agno.db.postgres import AsyncPostgresDb
+from agno.db.postgres import PostgresDb
 from agno.os import AgentOS
 
 from banco_agil.config import DB_URL
@@ -24,13 +24,16 @@ agent_os = AgentOS(
     teams=[team],
     # Sem isso, Studio/Approvals/Scheduler/Metrics/Evals ficam indisponíveis
     # no painel do os.agno.com ("pass a db to AgentOS to enable this
-    # feature"). Instância separada da do Team — mesma URL, pool próprio.
-    db=AsyncPostgresDb(db_url=DB_URL),
+    # feature"). PostgresDb síncrono — exigido pelo Studio (Components) e
+    # recomendado pela documentação oficial do Agno como banco de produção.
+    # Instância separada da do Team — mesma URL, pool próprio.
+    db=PostgresDb(db_url=DB_URL),
     scheduler=True,
     tracing=True,
     telemetry=os.getenv("AGNO_TELEMETRY", "true").lower() == "true",
-    # auto_provision_dbs trava no lifespan de startup contra o Postgres do
-    # Railway (mesmo com AsyncPostgresDb) — o AsyncPostgresDb do Team já
+    # auto_provision_dbs travou o lifespan de startup em produção — não por
+    # ser síncrono/assíncrono, mas por um volume do Postgres mal anexado na
+    # Railway (já corrigido). Mantido desligado: o PostgresDb do Team já
     # cria as tabelas sob demanda na primeira escrita real.
     auto_provision_dbs=False,
 )

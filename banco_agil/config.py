@@ -21,21 +21,25 @@ SOLICITACOES_CSV = DATA_DIR / "solicitacoes_aumento_limite.csv"
 
 # ── Banco de dados (sessão/tracing do AgentOS) ───────────────────────────────
 def _normalizar_db_url(url: str) -> str:
-    """Garante o dialeto assíncrono `psycopg_async` do psycopg3.
+    """Garante o dialeto síncrono `psycopg` (psycopg3) do PostgresDb.
 
-    O Team/AgentOS roda num event loop assíncrono (FastAPI); usar um
-    PostgresDb síncrono dentro dele bloqueia o worker inteiro na primeira
-    escrita real (trava o processo, inclusive o /health). O Agno recomenda
-    `AsyncPostgresDb` com `postgresql+psycopg_async://` para esse caso
-    (https://docs.agno.com/database/providers/async-postgres/overview).
+    `PostgresDb` é "o banco de produção recomendado" pela documentação
+    oficial do Agno (https://docs.agno.com/features/storage#pick-a-backend),
+    usado diretamente nos próprios exemplos de AgentOS+FastAPI sem ressalvas.
+    Um travamento real de startup que tivemos em produção foi diagnosticado
+    (incorretamente, na época) como "PostgresDb síncrono bloqueia o event
+    loop" — mas a troca para `AsyncPostgresDb` não resolveu o travamento
+    (confirmado pela própria mensagem do commit que fez essa troca); a causa
+    real era um volume do Postgres mal anexado na Railway + `auto_provision_dbs`
+    do AgentOS, ambos corrigidos separadamente.
 
     O plugin Postgres do Railway (e o `psql` em geral) injeta a URL no
-    formato padrão `postgresql://` ou `postgresql+psycopg://` — normalizamos
-    qualquer um desses para o dialeto assíncrono.
+    formato padrão `postgresql://` — normalizamos para o dialeto síncrono
+    explícito.
     """
-    for prefixo in ("postgresql+psycopg://", "postgresql://"):
+    for prefixo in ("postgresql+psycopg_async://", "postgresql://"):
         if url.startswith(prefixo):
-            return "postgresql+psycopg_async://" + url[len(prefixo):]
+            return "postgresql+psycopg://" + url[len(prefixo):]
     return url
 
 
@@ -44,7 +48,7 @@ def _normalizar_db_url(url: str) -> str:
 DB_URL = _normalizar_db_url(
     os.getenv("DB_URL")
     or os.getenv("DATABASE_URL")
-    or "postgresql+psycopg_async://banco:agil_dev_pw@localhost:5432/banco_agil"
+    or "postgresql+psycopg://banco:agil_dev_pw@localhost:5432/banco_agil"
 )
 
 # ── Modelos LLM (DeepInfra) ──────────────────────────────────────────────────

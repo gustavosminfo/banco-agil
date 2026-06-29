@@ -54,7 +54,7 @@ services:
       - .env                   # copie de example.env e preencha
     environment:
       # Sobrescreve DB_URL para apontar ao container postgres
-      DB_URL: postgresql+psycopg_async://${DB_USER:-banco}:${DB_PASSWORD:-agil_dev_pw}@postgres:5432/${DB_NAME:-banco_agil}
+      DB_URL: postgresql+psycopg://${DB_USER:-banco}:${DB_PASSWORD:-agil_dev_pw}@postgres:5432/${DB_NAME:-banco_agil}
       # Desabilitar telemetria Agno em dev
       AGNO_TELEMETRY: "false"
       # Porta interna

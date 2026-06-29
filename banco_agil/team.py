@@ -5,21 +5,22 @@ Equipe principal do Banco Ágil — compatível com Agno 2.6+, AgentOS.
 Arquitetura:
   - mode="coordinate": o coordenador mantém contexto e decide qual agente acionar.
   - session_state: persiste autenticação e dados do cliente entre turnos.
-  - AsyncPostgresDb: sessão/tracing sobrevivem a restarts; storage compartilhado
-    entre instâncias do AgentOS (runtime stateless). Usamos a variante
-    assíncrona porque o AgentOS roda num event loop async (FastAPI) — um
-    PostgresDb síncrono bloqueia o worker inteiro na primeira escrita real.
+  - PostgresDb (síncrono): sessão/tracing sobrevivem a restarts; storage
+    compartilhado entre instâncias do AgentOS (runtime stateless). É "o
+    banco de produção recomendado" pela documentação oficial do Agno —
+    ver nota em banco_agil/config.py sobre o travamento anterior (causa
+    real: volume do Postgres + auto_provision_dbs, não sync vs async).
   - Transições entre agentes são imperceptíveis ao cliente.
 """
 
 import re
 from typing import Optional
 
-import banco_agil._agno_patches  # noqa: F401 — aplica patches antes de usar AsyncPostgresDb
+import banco_agil._agno_patches  # noqa: F401 — aplica patches antes de usar PostgresDb
 
 from agno.team import Team
 from agno.team.mode import TeamMode
-from agno.db.postgres import AsyncPostgresDb
+from agno.db.postgres import PostgresDb
 
 from banco_agil.config import DB_URL, MAX_AUTH_ATTEMPTS, get_coordinator_model
 from banco_agil.agents import (
@@ -75,7 +76,7 @@ def criar_equipe() -> Team:
         # o modelo seguir a instrução de texto.
         max_iterations=1,
         session_state=_INITIAL_SESSION_STATE.copy(),
-        db=AsyncPostgresDb(db_url=DB_URL),
+        db=PostgresDb(db_url=DB_URL),
         add_history_to_context=True,
         add_session_state_to_context=True,
         num_history_runs=10,

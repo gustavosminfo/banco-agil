@@ -54,7 +54,6 @@ async def _rodar_conversa_local(team, prompts: list[str]) -> list[str]:
     respostas: list[str] = []
 
     for prompt in prompts:
-        # O Team usa AsyncPostgresDb — run() síncrono não é suportado.
         run = await team.arun(prompt, session_id=session_id)
         respostas.append(str(run.content) if run.content else "")
 
