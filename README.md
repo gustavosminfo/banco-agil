@@ -4,9 +4,15 @@ Sistema de atendimento ao cliente operado por múltiplos agentes de IA
 especializados, desenvolvido com **Agno 2.6** + **DeepInfra** + **AgentOS**,
 deployado na **Railway**, com UI em **Streamlit**.
 
-> 🌐 **Demo em produção:** https://banco-agil-production.up.railway.app
-> (health check em `/health`; UI Streamlit precisa ser executada localmente
-> apontando para essa URL — ver [Tutorial de execução](#-tutorial-de-execução-e-testes)).
+> 🌐 **Demo em produção:**
+> - UI Streamlit: https://banco-agil-ui-production.up.railway.app
+> - AgentOS (API/backend): https://banco-agil-production.up.railway.app
+>   (health check em `/health`)
+>
+> Dois serviços Railway no mesmo projeto, cada um com seu próprio
+> Dockerfile (`Dockerfile` / `Dockerfile.streamlit`) e config
+> (`railway.json` / `railway.streamlit.json`) — a UI consome o AgentOS
+> via REST (`AGENTOS_URL`), sem lógica de negócio própria.
 
 ---
 
@@ -301,7 +307,8 @@ banco-agil/
 ├── evals/                    # AgentAsJudgeEval — casos de avaliação por LLM-juiz
 ├── scripts/                  # Deploy, geração de chaves JWT, init do DB
 ├── docs/runbook.md           # Operação em produção (rotação de chave, rollback, etc.)
-├── Dockerfile / docker-compose.yml / railway.json
+├── Dockerfile / docker-compose.yml / railway.json   # serviço AgentOS
+├── Dockerfile.streamlit / railway.streamlit.json    # serviço UI
 └── pyproject.toml
 ```
 
