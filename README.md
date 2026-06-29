@@ -88,6 +88,12 @@ Cliente ──HTTP──► Streamlit (ui/streamlit_app.py)
   precisa ser assíncrono em [Desafios](#-desafios-enfrentados-e-como-foram-resolvidos).
 - **Dados de negócio** (`clientes.csv`, `score_limite.csv`) continuam em
   CSV nesta fase (decisão deliberada — ver [Escolhas técnicas](#-escolhas-técnicas-e-justificativas)).
+- **`os.agno.com` (modo Live)** conectado ao domínio público da Railway,
+  autenticado via JWT (par de chaves RSA, chave pública em
+  `JWT_VERIFICATION_KEY` no Railway — ver `docs/runbook.md`). Conectar uma
+  instância remota exige o plano Pro da Agno; usamos o cupom `PLATFORM30`
+  (1 mês grátis, citado no SDD §2.2) em vez de assinar. Chat e traces de
+  produção são visíveis no painel, validado com uma chamada real de teste.
 
 ---
 
