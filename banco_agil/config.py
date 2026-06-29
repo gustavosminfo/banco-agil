@@ -71,7 +71,9 @@ def get_coordinator_model() -> DeepInfra:
 
 
 def get_specialist_model() -> DeepInfra:
-    """Modelo usado por Triagem, Crédito e Câmbio (tool calling simples, barato)."""
+    """Modelo mais barato (tool calling simples). Atualmente nenhum agente o usa —
+    todos foram promovidos para get_coordinator_model() após falhas reais de
+    tool-calling em produção (ver AGENTS.md). Mantido para uso futuro."""
     return DeepInfra(
         id=SPECIALIST_MODEL_ID,
         temperature=0.5,
@@ -82,9 +84,12 @@ def get_specialist_model() -> DeepInfra:
 # ── Regras de negócio ────────────────────────────────────────────────────────
 MAX_AUTH_ATTEMPTS = 3  # Tentativas de autenticação antes do bloqueio
 
-# ── API de Câmbio (AwesomeAPI — gratuita, sem chave) ────────────────────────
+# ── API de Câmbio (AwesomeAPI) ───────────────────────────────────────────────
+# Funciona sem chave (cache de 1min, rate limit baixo) ou com AWESOMEAPI_TOKEN
+# (100k requisições/mês grátis — https://docs.awesomeapi.com.br/instrucoes-api-key).
 CAMBIO_API_URL = "https://economia.awesomeapi.com.br/json/last/{pair}"
 # Exemplos de par: USD-BRL, EUR-BRL, GBP-BRL, BTC-BRL
+AWESOMEAPI_TOKEN = os.getenv("AWESOMEAPI_TOKEN", "")
 
 # ── Mapeamento de nomes de moeda para par AwesomeAPI ─────────────────────────
 MOEDA_PARA_PAR: dict[str, str] = {

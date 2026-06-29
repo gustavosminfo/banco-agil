@@ -1,14 +1,14 @@
 """
 banco_agil/tools/exchange_tools.py
 Ferramentas do Agente de Câmbio.
-Utiliza a AwesomeAPI (gratuita, sem chave) para cotações em tempo real.
+Utiliza a AwesomeAPI para cotações em tempo real.
 API: https://economia.awesomeapi.com.br/json/last/{par}
 """
 
 import time
 
 import httpx
-from banco_agil.config import CAMBIO_API_URL, MOEDA_PARA_PAR
+from banco_agil.config import AWESOMEAPI_TOKEN, CAMBIO_API_URL, MOEDA_PARA_PAR
 
 _MAX_TENTATIVAS_429 = 2
 _ESPERA_ENTRE_TENTATIVAS_429 = 1.5  # segundos
@@ -30,10 +30,11 @@ def consultar_cotacao(moeda: str) -> dict:
     par        = MOEDA_PARA_PAR.get(moeda_norm, f"{moeda.upper()}-BRL")
 
     url = CAMBIO_API_URL.format(pair=par)
+    headers = {"x-api-key": AWESOMEAPI_TOKEN} if AWESOMEAPI_TOKEN else {}
 
     for tentativa in range(1, _MAX_TENTATIVAS_429 + 1):
         try:
-            response = httpx.get(url, timeout=8.0)
+            response = httpx.get(url, headers=headers, timeout=8.0)
             response.raise_for_status()
             data = response.json()
             break
