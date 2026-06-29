@@ -59,11 +59,14 @@ SPECIALIST_MODEL_ID = os.getenv(
 
 
 def get_coordinator_model() -> DeepInfra:
-    """Modelo usado pelo Team coordinator e pelo Agente de Entrevista (raciocínio)."""
+    """Modelo usado pelo Team coordinator, Agente de Entrevista e Agente de Triagem
+    (raciocínio). max_tokens alto porque é um modelo "Thinking" — o raciocínio interno
+    consome uma parte significativa do orçamento de tokens antes da resposta final;
+    com um limite baixo, a resposta visível ao cliente pode sair vazia (truncada)."""
     return DeepInfra(
         id=COORDINATOR_MODEL_ID,
         temperature=0.3,
-        max_tokens=2000,
+        max_tokens=6000,
     )
 
 

@@ -4,7 +4,7 @@ Agente de Triagem — autenticação e recepção do cliente.
 """
 
 from agno.agent import Agent
-from banco_agil.config import get_specialist_model
+from banco_agil.config import get_coordinator_model
 from banco_agil.tools.auth_tools import autenticar_cliente, buscar_dados_cliente
 
 
@@ -14,7 +14,11 @@ triagem_agent = Agent(
         "Responsável por recepcionar o cliente, coletar CPF e data de nascimento, "
         "autenticar contra a base de dados e identificar a necessidade do atendimento."
     ),
-    model=get_specialist_model(),
+    # Usa o modelo de raciocínio (não o "specialist" mais barato): autenticação é o
+    # ponto de maior risco de segurança do sistema, e o modelo specialist (DeepSeek-V3)
+    # demonstrou tendência a simular blocos de "resultado de ferramenta" em texto em
+    # vez de executar a chamada real — uma falha de autenticação por alucinação.
+    model=get_coordinator_model(),
     tools=[autenticar_cliente, buscar_dados_cliente],
     instructions=[
         # ── 1. Identidade ──────────────────────────────────────────────────
