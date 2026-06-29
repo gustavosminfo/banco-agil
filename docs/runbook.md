@@ -24,6 +24,16 @@ traces apareceram no painel.
    é necessário assinar (decisão financeira do usuário, não automatizável).
 4. Confirme que o chat e os traces aparecem na UI.
 
+### Funcionalidades do painel: o que está habilitado e por quê
+
+| Aba | Status | Motivo |
+|---|---|---|
+| Chat, Traces | ✅ Habilitado | Funciona desde a conexão inicial (item acima). |
+| Approvals, Scheduler, Metrics, Evaluation | ✅ Habilitado | `app/main.py` passa `db=AsyncPostgresDb(...)` ao `AgentOS(...)` (antes só o `Team` tinha banco próprio). Ao acessar via API diretamente (não pela UI), pode ser necessário passar `?db_id=...` — há 2 bancos registrados agora (Team + AgentOS). |
+| Studio (Components) | ❌ Indisponível | Exige um banco **síncrono** (`BaseDb`), não o assíncrono que usamos. Adicionar um sync `PostgresDb` reintroduziria parte do risco do deadlock original no event loop que motivou a troca para `AsyncPostgresDb` (commits `57287b0`/`0488706`/`d72ade2`). Avaliar caso a caso se o uso (administrativo, fora do caminho do chat) justifica o risco. |
+| Knowledge | ❌ Indisponível | Exige uma instância de `Knowledge` (base vetorial via pgvector + embedder) — desenvolvimento novo, não apenas configuração. Não é requisito do desafio técnico (sem RAG no escopo atual). |
+| Learning | ❌ Indisponível | Exige `LearningMachine` configurado nos agentes — mesma situação do Knowledge, fora do escopo do desafio. |
+
 ## Rotacionar a DEEPINFRA_API_KEY
 
 ```bash
