@@ -51,3 +51,21 @@ Redeploy**.
 - [ ] `railway variables` → todas as obrigatórias presentes (`DEEPINFRA_API_KEY`,
       `DB_URL`, `AGNO_TELEMETRY`)?
 - [ ] Dashboard DeepInfra → key ainda válida e dentro do limite de uso?
+
+## Sintoma: sessão nova "nasce" bloqueada (contaminação de session_state)
+
+Se uma conversa **nova** (CPF válido, primeira mensagem) já responder com
+"Por segurança, o acesso foi bloqueado após 3 tentativas" — isso é o bug
+conhecido descrito no README (seção "Desafios enfrentados", item 7): o
+estado em memória do processo do AgentOS parece acumular tentativas de
+falha entre sessões diferentes ao longo de uma execução longa do
+processo. Não há correção definitiva aplicada ainda.
+
+**Contorno:** reiniciar o serviço do AgentOS limpa o estado em memória:
+
+```bash
+railway redeploy <deployment-id-atual>   # ou: Deployments → Restart, pela UI
+```
+
+Confirme a limpeza testando uma sessão nova logo após o restart (CPF
+válido deve autenticar normalmente, sem menção a bloqueio).

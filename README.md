@@ -207,6 +207,58 @@ provisionado via API, gerando confusão sobre qual estava de fato em uso.
 `PGUSER` etc. nativos da Railway) e referenciar via variável
 `${{Postgres.DATABASE_URL}}`, em vez de provisionar manualmente.
 
+### 7. Contaminação de `session_state` em memória entre sessões (conhecido, não corrigido)
+**Problema:** ao rodar os 6 casos de eval (`evals/cases.py`) repetidamente
+contra produção, uma sessão nova (`session_id` novo, CPF válido) às vezes
+"nasce" já bloqueada por "3 tentativas de autenticação" — impossível, já
+que nenhuma tentativa real ocorreu naquela sessão.
+**Causa provável:** o `session_state` inicial passado ao `Team`
+(`_INITIAL_SESSION_STATE` em `banco_agil/team.py`) é um único dicionário
+em memória no processo do AgentOS. Embora o código do Agno (`_storage.py`)
+faça `deepcopy()` desse dicionário ao criar uma sessão nova, o sintoma
+observado — reset completo após um simples `deploymentRestart` na Railway,
+sem precisar reconstruir a imagem — indica algum estado residual em
+memória no processo de longa duração, não investigado até o nível exato
+da linha de código (ficou fora do escopo desta rodada de debugging).
+**Mitigação atual:** reiniciar o serviço do AgentOS na Railway limpa o
+estado. Não é uma correção definitiva — é um contorno operacional.
+**Próximo passo recomendado:** revisar se `Team(session_state=...)` deveria
+receber uma *factory* (callable) em vez de um dict literal, ou investigar
+mais a fundo o ciclo de vida de `team._cached_session` em `agno/team/_storage.py`.
+
+### 8. Falha intermitente de autenticação em conversas longas (conhecido, não corrigido)
+**Problema:** no caso de eval `entrevista_recalcula_score`, uma conversa
+mais longa (10 mensagens) nunca concluiu a autenticação — o agente ficou
+pedindo CPF repetidamente mesmo após recebê-lo, até travar por uma
+contagem de "tentativas" que não correspondia a erros reais do cliente.
+**Investigação:** isso **não é determinístico por tamanho de conversa**.
+Testes repetidos da mesma sequência curta de autenticação (Oi → CPF →
+DOB) contra produção mostraram falsos-negativos ocasionais (1 em 3
+tentativas em um teste rápido), que normalmente se autocorrigem na
+mensagem seguinte — mas, numa conversa mais longa cujo roteiro fixo não
+repete o CPF, uma falha pontual nunca tem chance de se recuperar.
+**Teste de modelo:** comparei o modelo atual do coordenador/triagem
+(`Qwen/Qwen3-235B-A22B-Thinking-2507`) contra o candidato mais forte
+disponível na DeepInfra (`Qwen/Qwen3-Max`) com 10 repetições isoladas da
+autenticação do Bruno Santos, com memória de conversa corretamente
+configurada. Resultado: o modelo atual fechou **10/10** sem falhas; o
+`Qwen3-Max` não pôde ser testado de fato — a DeepInfra repassa esse
+modelo para a API própria da Alibaba (DashScope) e nossa credencial
+recebe `401` lá (exigiria configuração adicional de BYOK no painel da
+DeepInfra, fora do nosso controle). Pesquisa de benchmarks (BFCL v3)
+também mostrou que o modelo com melhor desempenho bruto em tool-calling
+(GLM-4.5/5.x) é relatado por profissionais como mais fraco exatamente em
+"instruction-following condicional complexo" — o tipo de lógica que
+usamos (`se autenticado... senão se tentativas>=3...`) — então trocar de
+modelo não tinha garantia de resolver isso.
+**Conclusão:** o modelo isolado é confiável (10/10 em teste limpo); a
+falha observada em produção provavelmente está na camada de coordenação
+do `Team` (mais peças móveis que o agente isolado) e/ou é a mesma
+contaminação de estado do item 7, não uma limitação do modelo em si.
+**Status:** documentado como debt técnico conhecido, não corrigido nesta
+rodada — requer investigar a camada de delegação do `Team` isoladamente
+(fora do escopo do tempo disponível nesta sessão).
+
 ---
 
 ## ⚙️ Escolhas técnicas e justificativas
