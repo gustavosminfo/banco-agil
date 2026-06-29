@@ -50,7 +50,7 @@ DB_URL = _normalizar_db_url(
 # ── Modelos LLM (DeepInfra) ──────────────────────────────────────────────────
 COORDINATOR_MODEL_ID = os.getenv(
     "COORDINATOR_MODEL_ID",
-    "Qwen/Qwen3-235B-A22B-Thinking-2507",
+    "zai-org/GLM-5.2",
 )
 SPECIALIST_MODEL_ID = os.getenv(
     "SPECIALIST_MODEL_ID",
@@ -59,10 +59,15 @@ SPECIALIST_MODEL_ID = os.getenv(
 
 
 def get_coordinator_model() -> DeepInfra:
-    """Modelo usado pelo Team coordinator, Agente de Entrevista e Agente de Triagem
-    (raciocínio). max_tokens alto porque é um modelo "Thinking" — o raciocínio interno
-    consome uma parte significativa do orçamento de tokens antes da resposta final;
-    com um limite baixo, a resposta visível ao cliente pode sair vazia (truncada)."""
+    """Modelo usado por todos os agentes e pelo Team coordinator.
+
+    GLM-5.2 (não "Thinking") substituiu o Qwen3-235B-A22B-Thinking-2507 em
+    produção: o modelo de raciocínio visível ocasionalmente entrava num loop
+    de raciocínio interno repetitivo ("wait, no... wait, but...") até esgotar
+    o orçamento de tokens, retornando uma resposta final vazia ou excedendo
+    o timeout de gateway da Railway (300s) — observado repetidas vezes em
+    produção mesmo após mitigações (max_iterations, max_tokens maior).
+    GLM-5.2 não exibiu esse comportamento nos mesmos cenários de teste."""
     return DeepInfra(
         id=COORDINATOR_MODEL_ID,
         temperature=0.3,

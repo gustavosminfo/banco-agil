@@ -120,18 +120,25 @@ banco-agil/
 
 | Situação | Modelo | Config |
 |----------|--------|--------|
-| Team coordinator e os 4 agentes (Triagem, Crédito, Entrevista, Câmbio) | `Qwen/Qwen3-235B-A22B-Thinking-2507` | `temperature=0.3` |
+| Team coordinator e os 4 agentes (Triagem, Crédito, Entrevista, Câmbio) | `zai-org/GLM-5.2` | `temperature=0.3` |
 | Fallback (se model acima falhar) | `meta-llama/Meta-Llama-3.3-70B-Instruct` | `temperature=0.5` |
 
-> **Por que todos no modelo de raciocínio?** O `deepseek-ai/DeepSeek-V3-0324`
+> **Por que todos no mesmo modelo?** O `deepseek-ai/DeepSeek-V3-0324`
 > ("specialist", mais barato) demonstrou em produção, repetidas vezes,
 > deixar de chamar a ferramenta real e inventar uma resposta de texto —
 > primeiro no Triagem (autenticação), depois no Câmbio (cotação,
 > inclusive copiando para o cliente um trecho de exemplo do próprio
 > prompt interno). `get_specialist_model()` continua existindo em
-> `config.py` para uso futuro caso a relação custo/confiabilidade mude
-> (ex.: um modelo specialist com tool-calling mais confiável no catálogo
-> da DeepInfra), mas nenhum agente o usa atualmente.
+> `config.py` para uso futuro, mas nenhum agente o usa atualmente.
+>
+> **Por que GLM-5.2 e não um modelo "Thinking"?** O `Qwen/Qwen3-235B-A22B-Thinking-2507`
+> (usado anteriormente) ocasionalmente entrava num loop de raciocínio interno
+> repetitivo ("wait, no... wait, but...") até esgotar o orçamento de tokens,
+> retornando resposta final vazia ou excedendo o timeout de gateway da
+> Railway (300s) — observado em produção em respostas curtas/ambíguas (ex.:
+> "1" como número de dependentes na entrevista de crédito), mesmo após
+> `max_iterations=1` e `max_tokens=6000`. GLM-5.2 não exibiu esse
+> comportamento nos mesmos cenários de teste.
 
 **Factory functions em `banco_agil/config.py`:**
 ```python
@@ -357,7 +364,7 @@ python scripts/check_tag_leakage.py   # criar este script se não existir
 | `AGENTOS_URL` | Para UI Streamlit | `ui/api_client.py` |
 | `AGENTOS_API_KEY` | Para UI Streamlit | `ui/api_client.py` |
 | `JWT_VERIFICATION_KEY` | Para os.agno.com live | `app/main.py` / Railway env |
-| `COORDINATOR_MODEL_ID` | Opcional | Default: `Qwen/Qwen3-235B-A22B-Thinking-2507` |
+| `COORDINATOR_MODEL_ID` | Opcional | Default: `zai-org/GLM-5.2` |
 | `SPECIALIST_MODEL_ID` | Opcional | Default: `deepseek-ai/DeepSeek-V3-0324` |
 | `APP_ENV` | Opcional | `dev` \| `staging` \| `production` |
 | `LOG_LEVEL` | Opcional | `INFO` em prod, `DEBUG` em dev |
