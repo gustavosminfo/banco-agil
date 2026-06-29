@@ -29,7 +29,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     LANG=C.UTF-8 \
     AGNO_TELEMETRY=false \
-    PORT=8501
+    PORT=8501 \
+    # `streamlit run ui/streamlit_app.py` só adiciona ao sys.path o diretório
+    # do próprio script (ui/), não o cwd — diferente do uvicorn, que insere
+    # automaticamente. Sem isso, `from banco_agil.team import ...` falha com
+    # ModuleNotFoundError mesmo com banco_agil/ presente em /app.
+    PYTHONPATH=/app
 
 WORKDIR /app
 
