@@ -5,8 +5,13 @@ Utiliza a AwesomeAPI (gratuita, sem chave) para cotações em tempo real.
 API: https://economia.awesomeapi.com.br/json/last/{par}
 """
 
+import time
+
 import httpx
 from banco_agil.config import CAMBIO_API_URL, MOEDA_PARA_PAR
+
+_MAX_TENTATIVAS_429 = 2
+_ESPERA_ENTRE_TENTATIVAS_429 = 1.5  # segundos
 
 
 def consultar_cotacao(moeda: str) -> dict:
@@ -26,16 +31,26 @@ def consultar_cotacao(moeda: str) -> dict:
 
     url = CAMBIO_API_URL.format(pair=par)
 
-    try:
-        response = httpx.get(url, timeout=8.0)
-        response.raise_for_status()
-        data = response.json()
-    except httpx.TimeoutException:
-        return {"erro": "Serviço de cotação indisponível (timeout). Tente novamente."}
-    except httpx.HTTPStatusError as exc:
-        return {"erro": f"Moeda '{moeda}' não encontrada ou não suportada. ({exc.response.status_code})"}
-    except Exception as exc:
-        return {"erro": f"Erro ao consultar cotação: {exc}"}
+    for tentativa in range(1, _MAX_TENTATIVAS_429 + 1):
+        try:
+            response = httpx.get(url, timeout=8.0)
+            response.raise_for_status()
+            data = response.json()
+            break
+        except httpx.TimeoutException:
+            return {"erro": "Serviço de cotação indisponível (timeout). Tente novamente."}
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 429 and tentativa < _MAX_TENTATIVAS_429:
+                time.sleep(_ESPERA_ENTRE_TENTATIVAS_429)
+                continue
+            if status == 429:
+                return {"erro": "Serviço de cotação temporariamente sobrecarregado (limite de requisições excedido). Tente novamente em alguns instantes."}
+            if status == 404:
+                return {"erro": f"Moeda '{moeda}' não encontrada ou não suportada. (par {par})"}
+            return {"erro": f"Serviço de cotação retornou erro inesperado ({status}). Tente novamente."}
+        except Exception as exc:
+            return {"erro": f"Erro ao consultar cotação: {exc}"}
 
     # A AwesomeAPI retorna uma chave dinâmica no formato "USDBRL", "EURBRL", etc.
     chave = par.replace("-", "")

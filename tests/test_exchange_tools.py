@@ -62,6 +62,32 @@ def test_consultar_cotacao_moeda_nao_suportada(monkeypatch):
 
     resultado = consultar_cotacao("moeda_inexistente")
     assert "erro" in resultado
+    assert "não encontrada" in resultado["erro"]
+
+
+def test_consultar_cotacao_429_persistente_nao_confunde_com_moeda_invalida(monkeypatch):
+    monkeypatch.setattr(httpx, "get", lambda url, timeout: _FakeResponse({}, status_code=429))
+    monkeypatch.setattr("banco_agil.tools.exchange_tools.time.sleep", lambda s: None)
+
+    resultado = consultar_cotacao("dolar")
+    assert "erro" in resultado
+    # Bug real corrigido: 429 (rate limit) não deve ser reportado como
+    # "moeda não suportada" — induzia o agente a uma resposta enganosa.
+    assert "não encontrada" not in resultado["erro"]
+    assert "limite de requisições" in resultado["erro"].lower()
+
+
+def test_consultar_cotacao_429_recupera_na_segunda_tentativa(monkeypatch):
+    fake_payload = {
+        "USDBRL": {"bid": "5.28", "ask": "5.30", "pctChange": "0.35", "create_date": "x"}
+    }
+    respostas = [_FakeResponse({}, status_code=429), _FakeResponse(fake_payload)]
+    monkeypatch.setattr(httpx, "get", lambda url, timeout: respostas.pop(0))
+    monkeypatch.setattr("banco_agil.tools.exchange_tools.time.sleep", lambda s: None)
+
+    resultado = consultar_cotacao("dolar")
+    assert "erro" not in resultado
+    assert resultado["compra"] == 5.28
 
 
 def test_consultar_cotacao_resposta_inesperada(monkeypatch):
