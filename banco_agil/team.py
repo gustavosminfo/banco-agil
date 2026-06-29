@@ -60,6 +60,13 @@ def criar_equipe() -> Team:
         mode=TeamMode.coordinate,
         model=get_coordinator_model(),
         members=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
+        # Rede de segurança estrutural: o padrão do Agno é 10 — alto o bastante
+        # para, em caso de o coordenador não reconhecer uma resposta de membro
+        # como final (bug já observado em produção), re-delegar repetidamente
+        # sem nova mensagem do cliente, multiplicando custo/latência e terminando
+        # numa mensagem de bloqueio fabricada. 3 ainda cobre o encadeamento
+        # legítimo mais longo (ex.: Entrevista → Crédito no mesmo turno).
+        max_iterations=3,
         session_state=_INITIAL_SESSION_STATE.copy(),
         db=AsyncPostgresDb(db_url=DB_URL),
         add_history_to_context=True,
@@ -86,6 +93,18 @@ def criar_equipe() -> Team:
             "Se session_state['autenticado'] == True:",
             "  - Delegue conforme a necessidade identificada (crédito, câmbio, entrevista).",
             "  - Garanta que o CPF do cliente seja passado nos contextos das ferramentas.",
+
+            # ── 2.1 Uma delegação por mensagem do cliente (ANTI-LOOP — crítica) ──
+            "Delegue NO MÁXIMO uma vez a cada nova mensagem do cliente. A resposta "
+            "do membro — seja ela uma pergunta de esclarecimento (ex.: 'preciso do "
+            "CPF'), uma tag [AUTH_OK]/[AUTH_FAIL]/[ROUTE|...], ou qualquer outro "
+            "texto — é SEMPRE a resposta final e completa deste turno. Repasse-a ao "
+            "cliente e pare; nunca delegue de novo ao mesmo (ou outro) membro dentro "
+            "do mesmo turno só porque a resposta não trouxe uma tag conclusiva.",
+            "Só incremente session_state['tentativas_auth'] quando processar a tag "
+            "[AUTH_FAIL] explicitamente — uma pergunta de esclarecimento do membro "
+            "NÃO é uma tentativa de autenticação falha e NUNCA deve incrementar esse "
+            "contador.",
 
             # ── 3. Regra de delegação (ANTI-ALUCINAÇÃO — crítica) ─────────────
             "Ao delegar, distinga dois tipos de dado: ENTRADA (o que o cliente já disse "

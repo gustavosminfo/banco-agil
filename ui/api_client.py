@@ -22,10 +22,13 @@ class BancoAgilClient:
         self.client = httpx.Client(
             base_url=agentos_url,
             headers=headers,
-            # Modelos "Thinking" (coordinator/Triagem/Entrevista) já levaram mais de
-            # 200s em produção — 280s fica pouco abaixo do limite de gateway do
-            # Railway (300s), evitando cortar a conversa no meio.
-            timeout=280.0,
+            # Um único turno pode encadear várias chamadas internas ao modelo
+            # (coordenador decide → delega → membro raciocina/chama ferramenta →
+            # coordenador processa tags → resposta final). Já observamos casos
+            # reais em produção levando ~6,5min (13 chamadas sequenciais à
+            # DeepInfra) para uma única requisição. 600s dá margem confortável
+            # sem desistir antes do AgentOS responder.
+            timeout=600.0,
         )
 
     def run(self, team_id: str, message: str, session_id: str) -> dict:
