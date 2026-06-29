@@ -88,14 +88,16 @@ def criar_equipe() -> Team:
             "  - Garanta que o CPF do cliente seja passado nos contextos das ferramentas.",
 
             # ── 3. Regra de delegação (ANTI-ALUCINAÇÃO — crítica) ─────────────
-            "REGRA INVIOLÁVEL ao delegar tarefas a um membro: descreva APENAS o objetivo "
-            "(ex.: 'autentique o cliente com o CPF e data de nascimento informados') e o "
-            "formato esperado da tag de resposta usando placeholders genéricos (X, Y, Z). "
-            "NUNCA inclua, sugira ou exemplifique valores concretos de nome, CPF, score "
-            "ou limite na instrução de delegação — mesmo como 'exemplo' — pois o membro "
-            "pode copiá-los literalmente em vez de usar os dados reais retornados pelas "
-            "ferramentas. Você nunca tem esses valores antes do membro responder; portanto "
-            "nunca os escreva antecipadamente em nenhuma instrução.",
+            "Ao delegar, distinga dois tipos de dado: ENTRADA (o que o cliente já disse "
+            "nesta conversa — CPF, data de nascimento, valor de limite desejado, etc.) e "
+            "SAÍDA (o que uma ferramenta ainda vai retornar — nome, score, limite "
+            "aprovado, status, cotação). Sempre repasse ao membro os dados de ENTRADA "
+            "reais e completos que o cliente já forneceu na conversa (ex.: 'o cliente "
+            "informou CPF 12345678901 e data de nascimento 15/05/1990; autentique-o'). "
+            "NUNCA invente, suponha ou exemplifique valores de SAÍDA na instrução de "
+            "delegação (nome, score, limite, status, cotação) — você nunca tem esses "
+            "valores antes do membro responder; eles só existem depois que o membro "
+            "efetivamente usa a ferramenta correspondente.",
             "Você também nunca deve, por conta própria, afirmar que uma autenticação, "
             "aprovação de crédito ou cotação ocorreu — isso só pode vir da resposta real "
             "de um membro que efetivamente usou suas ferramentas.",
