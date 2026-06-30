@@ -64,7 +64,7 @@ agent_os = AgentOS(
     # Fixo para que o Studio (os.agno.com) reconecte ao mesmo projeto após
     # cada redeploy — sem isso, o os_id é gerado de novo a cada restart e o
     # Studio passa a apontar para uma instância "fantasma" desconectada.
-    os_id="banco-agil",
+    id="banco-agil",
     name="Banco Ágil",
     agents=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
     teams=[team],
