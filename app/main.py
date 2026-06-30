@@ -61,10 +61,10 @@ registry = Registry(
 )
 
 agent_os = AgentOS(
-    # Fixo para que o Studio (os.agno.com) reconecte ao mesmo projeto após
-    # cada redeploy — sem isso, o os_id é gerado de novo a cada restart e o
-    # Studio passa a apontar para uma instância "fantasma" desconectada.
-    id="banco-agil",
+    # Deve bater exatamente com o "AGENTOS ID" já registrado no projeto
+    # "Banco Ágil" em os.agno.com — sem isso, o os_id é gerado de novo a
+    # cada restart e o Studio aponta para uma instância desconectada.
+    id="4f0a47fb-8d88-45a8-baee-d357556cb27b",
     name="Banco Ágil",
     agents=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
     teams=[team],
