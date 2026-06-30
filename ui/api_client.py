@@ -3,7 +3,9 @@ ui/api_client.py
 Cliente HTTP para o AgentOS — usado pela UI Streamlit.
 """
 
+import json
 import os
+from typing import Iterator
 
 import httpx
 
@@ -47,3 +49,30 @@ class BancoAgilClient:
         response = self.client.post(f"/teams/{team_id}/runs", data=data)
         response.raise_for_status()
         return response.json()
+
+    def run_stream(
+        self, team_id: str, message: str, session_id: str, user_id: str | None = None
+    ) -> Iterator[str]:
+        """Executa um turno via SSE, gerando os pedaços de texto (`TeamRunContent`)
+        conforme chegam.
+
+        Usar streaming aqui não é só estético: como cada `yield` devolve o
+        controle ao loop do Streamlit, um clique em outro widget (ex.: "Nova
+        sessão") consegue interromper a execução em andamento — com a chamada
+        síncrona antiga (`run`, `stream=false`), a UI ficava travada por até
+        os 600s de timeout sem processar nenhum evento.
+        """
+        data = {"message": message, "session_id": session_id, "stream": "true"}
+        if user_id:
+            data["user_id"] = user_id
+        with self.client.stream("POST", f"/teams/{team_id}/runs", data=data) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    event = json.loads(line[len("data: "):])
+                except json.JSONDecodeError:
+                    continue
+                if event.get("event") == "TeamRunContent" and isinstance(event.get("content"), str):
+                    yield event["content"]

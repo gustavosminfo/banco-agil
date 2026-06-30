@@ -154,6 +154,18 @@ def _mensagem_boas_vindas() -> None:
 
 # ── Processamento da mensagem ─────────────────────────────────────────────────
 
+def _texto_seguro_para_exibir(buffer_raw: str) -> str:
+    """Limpa as tags já completas no buffer e oculta uma tag em formação no
+    final (ex.: "...obrigado! [AUTH_O") até que ela termine ou se confirme
+    como texto normal — evita "piscar" a tag por uma fração de segundo
+    enquanto ela ainda está sendo transmitida em pedaços.
+    """
+    ultimo_abre = buffer_raw.rfind("[")
+    if ultimo_abre != -1 and "]" not in buffer_raw[ultimo_abre:]:
+        buffer_raw = buffer_raw[:ultimo_abre]
+    return limpar_tags_da_resposta(buffer_raw)
+
+
 def _processar_mensagem(user_input: str) -> None:
     """Envia mensagem ao AgentOS via REST e processa a resposta."""
 
@@ -170,30 +182,32 @@ def _processar_mensagem(user_input: str) -> None:
             st.markdown(msg_enc)
         return
 
-    # 3. Chamar o AgentOS
+    # 3. Chamar o AgentOS via streaming — exibe o texto à medida que chega,
+    #    em vez de bloquear a UI por até 600s esperando a resposta completa.
     with st.chat_message("assistant", avatar="🏦"):
-        with st.spinner("Analisando..."):
-            try:
-                run = st.session_state.client.run(
-                    team_id=TEAM_ID,
-                    message=user_input,
-                    session_id=st.session_state.session_id,
-                    user_id=st.session_state.get("cpf_cliente"),
-                )
-                resposta_raw: str = run.get("content", "")
-            except Exception as exc:
-                resposta_raw = (
-                    "Desculpe, tivemos uma instabilidade temporária. "
-                    f"Tente novamente em instantes. ({type(exc).__name__})"
-                )
+        placeholder = st.empty()
+        resposta_raw = ""
+        try:
+            for chunk in st.session_state.client.run_stream(
+                team_id=TEAM_ID,
+                message=user_input,
+                session_id=st.session_state.session_id,
+                user_id=st.session_state.get("cpf_cliente"),
+            ):
+                resposta_raw += chunk
+                placeholder.markdown(_texto_seguro_para_exibir(resposta_raw) + " ▌")
+        except Exception as exc:
+            resposta_raw = (
+                "Desculpe, tivemos uma instabilidade temporária. "
+                f"Tente novamente em instantes. ({type(exc).__name__})"
+            )
 
-    # 4. Extrair metadados e limpar tags
-    _processar_tags_resposta(resposta_raw)
-    resposta_limpa = limpar_tags_da_resposta(resposta_raw)
+        # 4. Extrair metadados e limpar tags
+        _processar_tags_resposta(resposta_raw)
+        resposta_limpa = limpar_tags_da_resposta(resposta_raw)
+        placeholder.markdown(resposta_limpa)
 
-    # 5. Exibir e salvar resposta
-    with st.chat_message("assistant", avatar="🏦"):
-        st.markdown(resposta_limpa)
+    # 5. Salvar resposta
     st.session_state.messages.append(("assistant", resposta_limpa))
 
     # 6. Verificar encerramento (tag real emitida pela ferramenta do agente)
