@@ -78,21 +78,23 @@ def main() -> None:
     for nome, agente in agentes:
         try:
             version = agente.save(db=db, label=args.label)
-            print(f"  ✓ {nome:35} versão {version}")
+            print(f"  OK {nome:35} versao {version}")
         except Exception as e:
-            print(f"  ✗ {nome:35} ERRO: {e}")
+            print(f"  ERRO {nome:35} {e}")
 
     # ── Team ──────────────────────────────────────────────────────────────────
+    # team.save() salva os agentes-membros internamente; usar o mesmo label dos
+    # saves individuais acima causaria colisão ("Label already exists").
     try:
         team = criar_equipe()
-        version = team.save(db=db, label=args.label)
-        print(f"  ✓ {'Team — Banco Ágil':35} versão {version}")
+        version = team.save(db=db, label=f"{args.label}-team")
+        print(f"  OK {'Team Banco Agil':35} versao {version}")
     except Exception as e:
-        print(f"  ✗ {'Team — Banco Ágil':35} ERRO: {e}")
+        print(f"  ERRO {'Team Banco Agil':35} {e}")
 
     print("-" * 50)
-    print("Concluído. Abra os.agno.com → Studio para ver os componentes.")
-    print("Use docs/adopt-from-studio.md para importar melhorias de volta ao código.")
+    print("Concluido. Abra os.agno.com -> Studio para ver os componentes.")
+    print("Use docs/adopt-from-studio.md para importar melhorias de volta ao codigo.")
 
 
 if __name__ == "__main__":
