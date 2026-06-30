@@ -56,6 +56,13 @@ COPY --chown=agno:agno banco_agil/   ./banco_agil/
 COPY --chown=agno:agno ui/           ./ui/
 COPY --chown=agno:agno data/         ./data/
 
+# WORKDIR cria /app como root — só os subdiretórios acima ficam com dono
+# agno. O Streamlit grava metadados de sessão (machine id) em
+# $HOME/.streamlit (HOME=/app, do useradd -d /app) a cada nova conexão;
+# sem isso, toda reconexão de WebSocket disparava PermissionError nesse
+# write, deixando a sessão instável.
+RUN mkdir -p /app/.streamlit && chown agno:agno /app/.streamlit
+
 USER agno
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
