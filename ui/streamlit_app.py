@@ -13,6 +13,7 @@ Variáveis de ambiente necessárias (.env):
 import re
 import uuid
 
+import httpx
 import streamlit as st
 
 from banco_agil.team import (
@@ -82,6 +83,8 @@ def _init_state() -> None:
         st.session_state.tentativas_auth = 0
     if "encerrado" not in st.session_state:
         st.session_state.encerrado       = False
+    if "processando" not in st.session_state:
+        st.session_state.processando     = False
 
 
 def _resetar_sessao() -> None:
@@ -186,7 +189,9 @@ def _processar_mensagem(user_input: str) -> None:
     #    em vez de bloquear a UI por até 600s esperando a resposta completa.
     with st.chat_message("assistant", avatar="🏦"):
         placeholder = st.empty()
+        placeholder.markdown("_Pensando..._")
         resposta_raw = ""
+        st.session_state.processando = True
         try:
             for chunk in st.session_state.client.run_stream(
                 team_id=TEAM_ID,
@@ -196,11 +201,18 @@ def _processar_mensagem(user_input: str) -> None:
             ):
                 resposta_raw += chunk
                 placeholder.markdown(_texto_seguro_para_exibir(resposta_raw) + " ▌")
+        except httpx.TimeoutException:
+            resposta_raw = (
+                "⏱️ O atendimento está demorando mais que o esperado. "
+                "Tente novamente em instantes."
+            )
         except Exception as exc:
             resposta_raw = (
                 "Desculpe, tivemos uma instabilidade temporária. "
                 f"Tente novamente em instantes. ({type(exc).__name__})"
             )
+        finally:
+            st.session_state.processando = False
 
         # 4. Extrair metadados e limpar tags
         _processar_tags_resposta(resposta_raw)
@@ -294,7 +306,7 @@ def main() -> None:
     if not st.session_state.encerrado:
         user_input = st.chat_input(
             "Digite sua mensagem...",
-            disabled=st.session_state.encerrado,
+            disabled=st.session_state.encerrado or st.session_state.processando,
         )
         if user_input:
             _processar_mensagem(user_input.strip())
