@@ -85,13 +85,16 @@ def _init_state() -> None:
         st.session_state.encerrado       = False
     if "processando" not in st.session_state:
         st.session_state.processando     = False
+    if "pending_message" not in st.session_state:
+        st.session_state.pending_message = None
 
 
 def _resetar_sessao() -> None:
     """Reinicia completamente a sessão de atendimento."""
     for key in ["session_id", "client", "messages",
                 "autenticado", "nome_cliente",
-                "tentativas_auth", "encerrado"]:
+                "tentativas_auth", "encerrado",
+                "processando", "pending_message"]:
         st.session_state.pop(key, None)
     st.rerun()
 
@@ -170,28 +173,42 @@ def _texto_seguro_para_exibir(buffer_raw: str) -> str:
 
 
 def _processar_mensagem(user_input: str) -> None:
-    """Envia mensagem ao AgentOS via REST e processa a resposta."""
+    """Fase 1 do two-phase submit: registra a mensagem e dispara rerun com input bloqueado.
 
-    # 1. Adicionar mensagem do usuário ao histórico
+    O chat_input do Streamlit é renderizado antes desta função ser chamada, então
+    setar processando=True aqui não desabilita o widget na run atual — o usuário
+    ainda poderia enviar outra mensagem e o Streamlit interromperia o streaming.
+    A solução: armazenar a mensagem em pending_message, setar processando=True e
+    chamar st.rerun(). Na run seguinte o chat_input já nasce desabilitado.
+    """
     st.session_state.messages.append(("user", user_input))
     with st.chat_message("user", avatar="👤"):
         st.markdown(user_input)
+    st.session_state.pending_message = user_input
+    st.session_state.processando = True
+    st.rerun()
 
-    # 2. Bloquear se sessão encerrada
+
+def _executar_streaming(user_input: str) -> None:
+    """Fase 2 do two-phase submit: executa o streaming com o input já desabilitado.
+
+    Esta função só é chamada em runs onde processando=True foi setado na run
+    anterior, garantindo que o chat_input foi renderizado como disabled=True e
+    o Streamlit não pode interromper esta execução por novo input do usuário.
+    """
     if st.session_state.encerrado:
         msg_enc = "Esta sessão foi encerrada. Clique em **🔄 Nova sessão** para reiniciar."
         st.session_state.messages.append(("assistant", msg_enc))
         with st.chat_message("assistant", avatar="🏦"):
             st.markdown(msg_enc)
+        st.session_state.processando = False
+        st.session_state.pending_message = None
         return
 
-    # 3. Chamar o AgentOS via streaming — exibe o texto à medida que chega,
-    #    em vez de bloquear a UI por até 600s esperando a resposta completa.
     with st.chat_message("assistant", avatar="🏦"):
         placeholder = st.empty()
         placeholder.markdown("_Pensando..._")
         resposta_raw = ""
-        st.session_state.processando = True
         try:
             for chunk in st.session_state.client.run_stream(
                 team_id=TEAM_ID,
@@ -215,16 +232,13 @@ def _processar_mensagem(user_input: str) -> None:
             )
         finally:
             st.session_state.processando = False
+            st.session_state.pending_message = None
 
-        # 4. Extrair metadados e limpar tags
         _processar_tags_resposta(resposta_raw)
         resposta_limpa = limpar_tags_da_resposta(resposta_raw)
         placeholder.markdown(resposta_limpa)
 
-    # 5. Salvar resposta
     st.session_state.messages.append(("assistant", resposta_limpa))
-
-    # 6. Verificar encerramento (tag real emitida pela ferramenta do agente)
     if detectar_encerramento(resposta_raw):
         st.session_state.encerrado = True
 
@@ -304,7 +318,12 @@ def main() -> None:
     # Mensagem de boas-vindas (apenas na primeira vez)
     _mensagem_boas_vindas()
 
-    # Input do usuário
+    # Fase 2 do two-phase submit: streaming com input já desabilitado neste run
+    if st.session_state.pending_message and st.session_state.processando:
+        _executar_streaming(st.session_state.pending_message)
+        return
+
+    # Input do usuário (fase 1: captura e dispara rerun)
     if not st.session_state.encerrado:
         user_input = st.chat_input(
             "Digite sua mensagem...",
