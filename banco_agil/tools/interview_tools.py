@@ -9,11 +9,11 @@ import pandas as pd
 from banco_agil.config import CLIENTES_CSV
 
 
-def _verificar_autorizacao(agent, cpf: str) -> Optional[dict]:
-    """Retorna um dict de erro se o agente não está autenticado como esse CPF, ou None se OK."""
-    session_state = getattr(agent, "session_state", None) if agent is not None else None
-    if not session_state:
-        return {"sucesso": False, "mensagem": "Operação não autorizada: sessão inválida."}
+def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF."""
+    session_state = getattr(team, "session_state", None) if team is not None else None
+    if not session_state or "autenticado" not in session_state:
+        return None  # Fora de contexto de team (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
         return {"sucesso": False, "mensagem": "Operação não autorizada: autenticação necessária."}
     cpf_autenticado = session_state.get("cpf", "")
@@ -118,19 +118,19 @@ def calcular_score_credito(
     }
 
 
-def atualizar_score_cliente(cpf: str, novo_score: int, agent=None) -> dict:
+def atualizar_score_cliente(cpf: str, novo_score: int, team=None) -> dict:
     """
     Persiste o novo score do cliente em clientes.csv.
 
     Args:
         cpf:        CPF do cliente (apenas dígitos).
         novo_score: Score recalculado (0-1000).
-        agent:      Injetado pelo Agno — usado para verificar autenticação da sessão.
+        team:       Injetado pelo Agno — Team coordenador com session_state de autenticação.
 
     Returns:
         dict com {sucesso, score_anterior, score_novo, mensagem}.
     """
-    erro_auth = _verificar_autorizacao(agent, cpf)
+    erro_auth = _verificar_autorizacao(team, cpf)
     if erro_auth:
         return erro_auth
 

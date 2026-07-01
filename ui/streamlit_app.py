@@ -312,8 +312,11 @@ def main() -> None:
     # pode interromper este run por submit do usuário.
     if st.session_state.pending_message and st.session_state.processando:
         _executar_streaming(st.session_state.pending_message)
-        # Não há return aqui: após o streaming o script continua e renderiza
-        # o chat_input abaixo, tornando o campo visível novamente.
+        # Rerun limpo após o streaming: remove o ▌ do placeholder (substituído
+        # pelo histórico) e garante que o chat_input reapareça habilitado
+        # imediatamente, sem o delay de alguns segundos que ocorria quando o
+        # script simplesmente "caía" para o widget abaixo ainda no mesmo run.
+        st.rerun()
 
     # Input do usuário (fase 1: captura e dispara rerun)
     if not st.session_state.encerrado:

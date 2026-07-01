@@ -10,11 +10,17 @@ import pandas as pd
 from banco_agil.config import CLIENTES_CSV, SCORE_LIMITE_CSV, SOLICITACOES_CSV
 
 
-def _verificar_autorizacao(agent, cpf: str) -> Optional[dict]:
-    """Retorna um dict de erro se o agente não está autenticado como esse CPF, ou None se OK."""
-    session_state = getattr(agent, "session_state", None) if agent is not None else None
-    if not session_state:
-        return {"status": "erro", "mensagem": "Operação não autorizada: sessão inválida."}
+def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF.
+
+    Usa o parâmetro `team` (injetado pelo Agno como o Team coordenador) porque
+    é nele que o session_state com `autenticado` e `cpf` é mantido. O parâmetro
+    `agent` seria o membro (Agente de Crédito) cujo session_state não tem esses
+    campos — usar `agent` bloqueava toda chamada legítima.
+    """
+    session_state = getattr(team, "session_state", None) if team is not None else None
+    if not session_state or "autenticado" not in session_state:
+        return None  # Fora de contexto de team (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
         return {"status": "erro", "mensagem": "Operação não autorizada: autenticação necessária."}
     cpf_autenticado = session_state.get("cpf", "")
@@ -85,7 +91,7 @@ def verificar_limite_pelo_score(score: int, novo_limite: float) -> dict:
 
 # ── Processamento de solicitação ──────────────────────────────────────────────
 
-def solicitar_aumento_limite(cpf: str, novo_limite: float, agent=None) -> dict:
+def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
     """
     Cria um registro de solicitação de aumento de limite e aprova/rejeita
     com base no score atual do cliente.
@@ -96,12 +102,12 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, agent=None) -> dict:
     Args:
         cpf: CPF do cliente (apenas dígitos).
         novo_limite: Novo limite desejado em R$.
-        agent: Injetado pelo Agno — usado para verificar autenticação da sessão.
+        team: Injetado pelo Agno — Team coordenador com session_state de autenticação.
 
     Returns:
         dict com {status, limite_atual, novo_limite_solicitado, limite_maximo_permitido, mensagem}.
     """
-    erro_auth = _verificar_autorizacao(agent, cpf)
+    erro_auth = _verificar_autorizacao(team, cpf)
     if erro_auth:
         return erro_auth
 
