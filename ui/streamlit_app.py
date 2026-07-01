@@ -318,10 +318,13 @@ def main() -> None:
     # Mensagem de boas-vindas (apenas na primeira vez)
     _mensagem_boas_vindas()
 
-    # Fase 2 do two-phase submit: streaming com input já desabilitado neste run
+    # Fase 2 do two-phase submit: executa o streaming se há mensagem pendente.
+    # Não há chat_input renderizado antes deste bloco, então o Streamlit não
+    # pode interromper este run por submit do usuário.
     if st.session_state.pending_message and st.session_state.processando:
         _executar_streaming(st.session_state.pending_message)
-        return
+        # Não há return aqui: após o streaming o script continua e renderiza
+        # o chat_input abaixo, tornando o campo visível novamente.
 
     # Input do usuário (fase 1: captura e dispara rerun)
     if not st.session_state.encerrado:
@@ -329,7 +332,9 @@ def main() -> None:
             "Digite sua mensagem...",
             disabled=st.session_state.encerrado or st.session_state.processando,
         )
-        if user_input:
+        # Ignora qualquer input capturado na janela de race entre o submit e
+        # o st.rerun() que ainda não desabilitou o campo.
+        if user_input and not st.session_state.processando:
             _processar_mensagem(user_input.strip())
     else:
         st.info("Sessão encerrada. Clique em **🔄 Nova sessão** para reiniciar.")
