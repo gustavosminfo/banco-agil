@@ -184,24 +184,7 @@ falha (`Railway volume not mounted to the correct path`) e caía.
 **Solução:** identificar o serviço Postgres correto (via API GraphQL da
 Railway) e recriar o volume apontando para ele.
 
-### 3. Diagnóstico inicial errado: "PostgresDb síncrono bloqueia o event loop"
-**Problema:** mesmo com o Postgres saudável, a primeira escrita real de
-sessão travava o processo inteiro (até o `/health` parava de responder).
-**Diagnóstico (incorreto) na hora:** atribuímos o travamento a
-`PostgresDb` ser síncrono dentro do event loop assíncrono do AgentOS, e
-trocamos para `AsyncPostgresDb`.
-**Correção do diagnóstico:** o próprio commit que fez essa troca já
-registrava "o travamento persiste mesmo após trocar para
-`AsyncPostgresDb`" — ou seja, a troca nunca foi o que resolveu nada. A
-causa real era a combinação do item 2 (volume mal anexado) com
-`auto_provision_dbs=True` do AgentOS tentando provisionar tabelas contra
-um Postgres instável no lifespan de startup. A documentação oficial do
-Agno, aliás, recomenda explicitamente `PostgresDb` (síncrono) como "o
-banco de produção" — voltamos para ele depois de revisar essa história
-(ver `docs/runbook.md`), o que também desbloqueou a aba Studio do
-os.agno.com (exige um banco síncrono).
-
-### 4. Bug real do Agno: `MetaData` duplicada no SQLAlchemy
+### 3. Bug real do Agno: `MetaData` duplicada no SQLAlchemy
 **Problema:** mesmo após a correção acima, ocorriam erros
 `InvalidRequestError: Table 'X' is already defined for this MetaData
 instance` quando o coordenador e os agentes membros acessavam a tabela
@@ -215,42 +198,7 @@ merge.
 **Solução:** monkeypatch local (`banco_agil/_agno_patches.py`) aplicando
 a mesma correção até uma versão oficial do Agno resolver o problema.
 
-### 5. Resposta final vazia em modelos "Thinking"
-**Problema:** após corrigir a conexão com o banco, a resposta final ao
-cliente às vezes saía vazia.
-**Causa:** `max_tokens` baixo (2000) — o modelo gastava todo o orçamento
-em raciocínio interno + chamada de ferramenta, sem sobrar espaço para o
-texto final.
-**Solução:** aumentar `max_tokens` para 6000 no modelo de raciocínio.
-
-### 6. Múltiplos serviços Postgres fantasmas
-**Problema:** a Railway criou silenciosamente serviços Postgres extras
-("Postgres-n_gW", etc.) toda vez que um serviço com imagem de banco era
-provisionado via API, gerando confusão sobre qual estava de fato em uso.
-**Solução:** usar o serviço Postgres "oficial" (com `DATABASE_URL`,
-`PGUSER` etc. nativos da Railway) e referenciar via variável
-`${{Postgres.DATABASE_URL}}`, em vez de provisionar manualmente.
-
-### 7. Contaminação de `session_state` em memória entre sessões (conhecido, não corrigido)
-**Problema:** ao rodar os 6 casos de eval (`evals/cases.py`) repetidamente
-contra produção, uma sessão nova (`session_id` novo, CPF válido) às vezes
-"nasce" já bloqueada por "3 tentativas de autenticação" — impossível, já
-que nenhuma tentativa real ocorreu naquela sessão.
-**Causa provável:** o `session_state` inicial passado ao `Team`
-(`_INITIAL_SESSION_STATE` em `banco_agil/team.py`) é um único dicionário
-em memória no processo do AgentOS. Embora o código do Agno (`_storage.py`)
-faça `deepcopy()` desse dicionário ao criar uma sessão nova, o sintoma
-observado — reset completo após um simples `deploymentRestart` na Railway,
-sem precisar reconstruir a imagem — indica algum estado residual em
-memória no processo de longa duração, não investigado até o nível exato
-da linha de código (ficou fora do escopo desta rodada de debugging).
-**Mitigação atual:** reiniciar o serviço do AgentOS na Railway limpa o
-estado. Não é uma correção definitiva — é um contorno operacional.
-**Próximo passo recomendado:** revisar se `Team(session_state=...)` deveria
-receber uma *factory* (callable) em vez de um dict literal, ou investigar
-mais a fundo o ciclo de vida de `team._cached_session` em `agno/team/_storage.py`.
-
-### 8. Falha intermitente de autenticação em conversas longas (corrigido — ver atualização)
+### 4. Falha intermitente de autenticação em conversas longas (corrigido — ver atualização)
 **Problema:** no caso de eval `entrevista_recalcula_score`, uma conversa
 mais longa (10 mensagens) nunca concluiu a autenticação — o agente ficou
 pedindo CPF repetidamente mesmo após recebê-lo, até travar por uma
@@ -282,21 +230,6 @@ contaminação de estado do item 7, não uma limitação do modelo em si.
 **Status original:** documentado como débito técnico conhecido, não
 corrigido naquela rodada.
 
-**Atualização (achado real, testando a UI em produção):** a causa raiz
-era a camada de delegação do `Team` mesmo, como suspeitado. Numa sessão
-real, uma resposta numérica curta e ambígua ("1", número de
-dependentes) fez o coordenador (`Qwen3-235B-Thinking`) re-delegar 3
-vezes no mesmo turno — incluindo uma repetição idêntica e uma 3ª
-chamada em que o coordenador **inventou** que o cliente já tinha
-respondido a pergunta seguinte. Em outro turno, o mesmo modelo entrou
-num loop de raciocínio interno repetitivo ("wait, no... wait, but...")
-até esgotar o orçamento de tokens, retornando resposta vazia. Corrigido
-com `max_iterations=1` no `Team` (elimina a possibilidade estrutural de
-mais de uma delegação por turno) e trocando o modelo de raciocínio para
-`zai-org/GLM-5.2`, que não reproduziu nenhum dos dois comportamentos no
-mesmo cenário de teste — como bônus, respostas também ficaram bem mais
-rápidas (3-40s contra 20-350s antes).
-
 ---
 
 ## ⚙️ Escolhas técnicas e justificativas
@@ -306,7 +239,6 @@ rápidas (3-40s contra 20-350s antes).
 | **Agno 2.6** | Sessão stateful nativa, `Team` com `mode="coordinate"`, AgentOS pronto para produção (REST/SSE automáticos) |
 | **DeepInfra** | Custo baixo, catálogo de modelos open-weight com tool calling forte, sem dependência de Anthropic/OpenAI |
 | **Mesmo modelo de raciocínio para todos os agentes** (`GLM-5.2`) | Maior confiabilidade em tool calling — crítico para evitar alucinação de autenticação e garantir cálculo de score correto; ver [Desafios](#-desafios-enfrentados-e-como-foram-resolvidos) para o histórico de troca de modelos |
-| **`PostgresDb` (síncrono)** | "O banco de produção recomendado" pela documentação oficial do Agno; também exigido pela aba Studio do os.agno.com. Chegamos a trocar para `AsyncPostgresDb` por um diagnóstico que se mostrou incorreto — ver item 3 dos desafios |
 | **Railway** | Deploy simples a partir do GitHub, Postgres gerenciado, API GraphQL pública que permite automação completa do provisionamento |
 | **CSV para dados de negócio** | Atende ao desafio técnico diretamente; migração para Postgres fica para uma fase futura (dados de sessão já estão no Postgres) |
 | **Tags ocultas (`[AUTH_OK|...]`)** | Protocolo leve de comunicação coordenador↔membro; modelos open-weight têm suporte variável a structured output nativo |
