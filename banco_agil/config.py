@@ -67,6 +67,11 @@ SPECIALIST_MODEL_ID = os.getenv(
     "SPECIALIST_MODEL_ID",
     "deepseek-ai/DeepSeek-V3-0324",
 )
+# Usados só pelo canal WhatsApp (banco_agil/media_processing.py) para
+# converter áudio/imagem em texto ANTES de chegar ao coordenador — que
+# permanece text-only (GLM-5.2 não suporta multimodal).
+STT_MODEL_ID = os.getenv("STT_MODEL_ID", "openai/whisper-large-v3-turbo")
+VISION_MODEL_ID = os.getenv("VISION_MODEL_ID", "google/gemma-4-31B-it")
 
 
 def get_coordinator_model() -> DeepInfra:
@@ -121,3 +126,10 @@ MOEDA_PARA_PAR: dict[str, str] = {
     "iene": "JPY-BRL",
     "jpy": "JPY-BRL",
 }
+
+# ── Canal WhatsApp (Kapso) ────────────────────────────────────────────────────
+# API REST + webhooks pura da Kapso (sem SDK — Chat SDK é TypeScript-only).
+KAPSO_API_KEY = os.getenv("KAPSO_API_KEY", "")
+KAPSO_WEBHOOK_SECRET = os.getenv("KAPSO_WEBHOOK_SECRET", "")
+KAPSO_PHONE_NUMBER_ID = os.getenv("KAPSO_PHONE_NUMBER_ID", "")
+KAPSO_API_BASE = "https://api.kapso.ai/meta/whatsapp/v24.0"
