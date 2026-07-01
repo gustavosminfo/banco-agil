@@ -12,9 +12,6 @@ import os
 from agno.db.postgres import PostgresDb
 from agno.os import AgentOS
 from agno.registry import Registry
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from banco_agil.agents import cambio_agent, credito_agent, entrevista_agent, triagem_agent
 from banco_agil.config import DB_URL, get_coordinator_model
@@ -91,20 +88,8 @@ agent_os = AgentOS(
 
 app = agent_os.get_app()
 
-# Enforce API key authentication when AGENTOS_API_KEY is set.
-# Paths used by health checks, docs, and Studio probes are excluded.
-_AGENTOS_API_KEY = os.getenv("AGENTOS_API_KEY", "")
-_AUTH_SKIP_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
-
-
-class _APIKeyMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        if _AGENTOS_API_KEY and request.url.path not in _AUTH_SKIP_PATHS:
-            auth = request.headers.get("Authorization", "")
-            if auth != f"Bearer {_AGENTOS_API_KEY}":
-                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-        return await call_next(request)
-
-
-if _AGENTOS_API_KEY:
-    app.add_middleware(_APIKeyMiddleware)
+# API key authentication is handled natively pelo Agno via a variável de
+# ambiente OS_SECURITY_KEY (lida por AgnoAPISettings). Quando definida no
+# Railway, o próprio AgentOS exige Authorization: Bearer <key> em todas as
+# rotas — incluindo WebSocket e endpoints internos do Studio — sem precisar
+# de middleware customizado aqui.
