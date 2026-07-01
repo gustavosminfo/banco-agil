@@ -18,9 +18,10 @@ from typing import Optional
 
 import banco_agil._agno_patches  # noqa: F401 — aplica patches antes de usar PostgresDb
 
-from agno.team import Team
+from agno.team import Team, TeamFactory
 from agno.team.mode import TeamMode
 from agno.db.postgres import PostgresDb
+from agno.factory import RequestContext
 
 from banco_agil.config import DB_URL, MAX_AUTH_ATTEMPTS, get_coordinator_model
 from banco_agil.agents import (
@@ -199,6 +200,23 @@ def criar_equipe() -> Team:
         ],
         show_members_responses=False,
         markdown=True,
+    )
+
+
+def criar_equipe_factory() -> TeamFactory:
+    """TeamFactory para uso no AgentOS — cria um Team fresco por requisição.
+
+    Com o singleton (criar_equipe() chamado uma vez no boot), o Agno faz
+    deepcopy() do session_state internamente, mas algum estado em memória
+    vaza entre sessões sob carga (bug documentado: sessão nova nasce com
+    tentativas_auth > 0). O TeamFactory elimina esse risco: cada request
+    recebe uma instância virgem do Team com session_state limpo.
+    """
+    return TeamFactory(
+        id="banco-agil",
+        db=PostgresDb(db_url=DB_URL),
+        factory=lambda ctx: criar_equipe(),
+        name="Banco Ágil",
     )
 
 

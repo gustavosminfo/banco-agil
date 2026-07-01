@@ -225,10 +225,25 @@ usamos (`se autenticado... senão se tentativas>=3...`) — então trocar de
 modelo não tinha garantia de resolver isso.
 **Conclusão:** o modelo isolado é confiável (10/10 em teste limpo); a
 falha observada em produção provavelmente está na camada de coordenação
-do `Team` (mais peças móveis que o agente isolado) e/ou é a mesma
-contaminação de estado do item 7, não uma limitação do modelo em si.
+do `Team` (mais peças móveis que o agente isolado) e/ou é a contaminação
+de estado descrita no item 5 abaixo, não uma limitação do modelo em si.
 **Status original:** documentado como débito técnico conhecido, não
 corrigido naquela rodada.
+
+### 5. Contaminação de `session_state` entre sessões (corrigido via `TeamFactory`)
+**Problema:** ao rodar os evals em sequência rápida contra produção, uma
+sessão nova (`session_id` novo, CPF válido) às vezes "nascia" já bloqueada
+por "3 tentativas de autenticação" — impossível para uma sessão genuinamente
+nova. Restart do serviço do AgentOS na Railway limpava o estado, confirmando
+que era estado em memória no processo, não dado corrompido no Postgres.
+**Causa:** `app/main.py` criava um singleton `team = criar_equipe()` no boot
+do processo. O Agno faz `deepcopy()` do `session_state` internamente ao criar
+sessões novas, mas algum estado em memória do `Team` singleton vazava entre
+sessões sob carga.
+**Correção:** substituído por `TeamFactory` (`agno.team.TeamFactory`,
+disponível em `agno==2.6.20`). O factory é invocado pelo AgentOS a cada
+request, retornando um `Team` fresco com `session_state` limpo — sem risco
+de contaminação entre sessões distintas.
 
 ---
 

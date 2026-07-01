@@ -15,7 +15,7 @@ from agno.registry import Registry
 
 from banco_agil.agents import cambio_agent, credito_agent, entrevista_agent, triagem_agent
 from banco_agil.config import DB_URL, get_coordinator_model
-from banco_agil.team import criar_equipe
+from banco_agil.team import criar_equipe, criar_equipe_factory
 from banco_agil.tools.auth_tools import autenticar_cliente, buscar_dados_cliente
 from banco_agil.tools.credit_tools import (
     consultar_limite_credito,
@@ -28,7 +28,8 @@ from banco_agil.tools.session_tools import encerrar_atendimento
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
-team = criar_equipe()
+team = criar_equipe()               # singleton para Registry/Studio (metadados)
+team_factory = criar_equipe_factory()  # factory para AgentOS (fresco por request)
 
 # Registry expõe tools, model, agentes e Team como building blocks no Studio:
 # - tools e models → dropdowns ao criar/editar agentes no Studio
@@ -67,7 +68,7 @@ agent_os = AgentOS(
     id="4f0a47fb-8d88-45a8-baee-d357556cb27b",
     name="Banco Ágil",
     agents=[triagem_agent, credito_agent, entrevista_agent, cambio_agent],
-    teams=[team],
+    teams=[team_factory],
     registry=registry,
     # Sem isso, Studio/Approvals/Scheduler/Metrics/Evals ficam indisponíveis
     # no painel do os.agno.com ("pass a db to AgentOS to enable this
