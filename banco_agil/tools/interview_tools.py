@@ -4,9 +4,22 @@ Ferramentas do Agente de Entrevista de Crédito.
 Calcula o novo score com a fórmula ponderada do desafio e atualiza clientes.csv.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV
+
+
+def _verificar_autorizacao(agent, cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se o agente não está autenticado como esse CPF, ou None se OK."""
+    session_state = getattr(agent, "session_state", None) if agent is not None else None
+    if not session_state:
+        return {"sucesso": False, "mensagem": "Operação não autorizada: sessão inválida."}
+    if not session_state.get("autenticado"):
+        return {"sucesso": False, "mensagem": "Operação não autorizada: autenticação necessária."}
+    cpf_autenticado = session_state.get("cpf", "")
+    if cpf_autenticado and cpf_autenticado != cpf:
+        return {"sucesso": False, "mensagem": "Operação não autorizada: acesso negado."}
+    return None
 
 
 # ── Pesos da fórmula de score ─────────────────────────────────────────────────
@@ -105,17 +118,22 @@ def calcular_score_credito(
     }
 
 
-def atualizar_score_cliente(cpf: str, novo_score: int) -> dict:
+def atualizar_score_cliente(cpf: str, novo_score: int, agent=None) -> dict:
     """
     Persiste o novo score do cliente em clientes.csv.
 
     Args:
         cpf:        CPF do cliente (apenas dígitos).
         novo_score: Score recalculado (0-1000).
+        agent:      Injetado pelo Agno — usado para verificar autenticação da sessão.
 
     Returns:
         dict com {sucesso, score_anterior, score_novo, mensagem}.
     """
+    erro_auth = _verificar_autorizacao(agent, cpf)
+    if erro_auth:
+        return erro_auth
+
     try:
         df = pd.read_csv(CLIENTES_CSV, dtype={"cpf": str})
     except FileNotFoundError:

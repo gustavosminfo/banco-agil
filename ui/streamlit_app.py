@@ -270,21 +270,10 @@ def _processar_tags_resposta(resposta: str) -> None:
 
 def _renderizar_sidebar() -> None:
     with st.sidebar:
-        st.header("📋 Guia de testes")
+        st.header("📋 Guia de atendimento")
         st.markdown("""
-**Clientes de teste:**
-
-| CPF | Nascimento | Score | Limite |
-|-----|-----------|-------|--------|
-| 123.456.789-01 | 15/05/1990 | 720 | R$ 5.000 |
-| 987.654.321-00 | 23/11/1985 | 450 | R$ 1.500 |
-| 111.222.333-00 | 08/03/1978 | 610 | R$ 3.000 |
-| 444.555.666-77 | 30/07/2000 | 380 | R$ 800 |
-| 555.666.777-88 | 12/01/1995 | 810 | R$ 8.000 |
-
----
 **Fluxos disponíveis:**
-1. 🔐 Autenticação (CPF + nascimento)
+1. 🔐 Autenticação (CPF + data de nascimento)
 2. 💳 Consulta de limite de crédito
 3. 📈 Solicitação de aumento de limite
 4. 📝 Entrevista de crédito (recalcula score)

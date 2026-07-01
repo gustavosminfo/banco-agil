@@ -20,9 +20,15 @@ CASES: list[EvalCase] = [
         name="auth_happy_path",
         prompts=["Oi", "12345678901", "15/05/1990"],
         criteria=(
-            "O atendente autenticou Ana Oliveira com sucesso e perguntou em que "
-            "pode ajudar. A resposta não deve conter colchetes, nomes de agentes, "
-            "'equipe' ou qualquer metadado interno."
+            "APROVADO se: o atendente confirmou a identidade de Ana Oliveira e "
+            "perguntou como pode ajudar. "
+            "REPROVADO apenas se a resposta contiver literalmente colchetes com tags "
+            "técnicas como '[AUTH_OK', '[AUTH_FAIL', '[ROUTE|', '[ENCERRADO]', "
+            "ou nomes técnicos de agentes internos como 'Agente de Triagem', "
+            "'Agente de Crédito', 'Agente de Câmbio', ou a palavra isolada 'equipe' "
+            "referindo-se à arquitetura interna. "
+            "NÃO reprovar por: mencionar o nome do banco, o nome da cliente, "
+            "listar serviços disponíveis, ou usar frases de confirmação de autenticação."
         ),
     ),
     EvalCase(
@@ -69,19 +75,34 @@ CASES: list[EvalCase] = [
             "não",
         ],
         criteria=(
-            "O atendente conduziu a entrevista financeira (uma pergunta por vez), "
-            "comunicou o novo score calculado de forma transparente e perguntou se "
-            "o cliente deseja tentar o aumento de limite novamente. Nenhuma tag ou "
-            "metadado interno deve aparecer na resposta."
+            "APROVADO se: as respostas do atendente mostram que ele conduziu uma "
+            "entrevista financeira (perguntou renda, vínculo empregatício, despesas, "
+            "dependentes e dívidas — uma pergunta por vez), comunicou um novo score "
+            "calculado numericamente (ex.: 'score subiu para X'), e perguntou se o "
+            "cliente quer tentar o aumento de limite novamente. "
+            "REPROVADO apenas se as respostas do atendente contiverem literalmente "
+            "colchetes com tags técnicas como '[AUTH_OK', '[ROUTE|', '[ENCERRADO]', "
+            "ou nomes técnicos de agentes como 'Agente de Triagem', 'Agente de "
+            "Entrevista', ou a palavra isolada 'equipe' referindo-se à arquitetura. "
+            "IGNORAR completamente as linhas que começam com 'Cliente:' — elas são "
+            "as mensagens enviadas pelo usuário, não fazem parte da resposta do "
+            "atendente e não devem influenciar a avaliação."
         ),
     ),
     EvalCase(
         name="cambio_dolar",
         prompts=["Oi", "12345678901", "15/05/1990", "Qual o dólar hoje?"],
         criteria=(
-            "O atendente apresentou a cotação do dólar (compra, venda e variação) "
-            "em valores plausíveis em Reais, sem expor tags, nomes de agentes ou "
-            "metadados internos."
+            "APROVADO se: o atendente apresentou a cotação do dólar americano com "
+            "valores de compra e/ou venda em Reais (ex.: R$ 5,xx) e pelo menos uma "
+            "indicação de variação ou horário. "
+            "REPROVADO apenas se as respostas do atendente contiverem literalmente "
+            "colchetes com tags técnicas como '[AUTH_OK', '[ROUTE|', '[ENCERRADO]', "
+            "ou nomes técnicos de agentes como 'Agente de Câmbio', 'Agente de "
+            "Triagem', ou a palavra isolada 'equipe' referindo-se à arquitetura. "
+            "NÃO reprovar por: mencionar o nome do banco, o nome da cliente "
+            "autenticada (Ana Oliveira), solicitar CPF e data de nascimento para "
+            "autenticação, ou listar serviços disponíveis."
         ),
     ),
     EvalCase(

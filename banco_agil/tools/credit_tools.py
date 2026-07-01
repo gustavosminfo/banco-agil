@@ -5,9 +5,22 @@ Consulta limite, processa solicitação de aumento e verifica elegibilidade via 
 """
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional, Union
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV, SCORE_LIMITE_CSV, SOLICITACOES_CSV
+
+
+def _verificar_autorizacao(agent, cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se o agente não está autenticado como esse CPF, ou None se OK."""
+    session_state = getattr(agent, "session_state", None) if agent is not None else None
+    if not session_state:
+        return {"status": "erro", "mensagem": "Operação não autorizada: sessão inválida."}
+    if not session_state.get("autenticado"):
+        return {"status": "erro", "mensagem": "Operação não autorizada: autenticação necessária."}
+    cpf_autenticado = session_state.get("cpf", "")
+    if cpf_autenticado and cpf_autenticado != cpf:
+        return {"status": "erro", "mensagem": "Operação não autorizada: acesso negado."}
+    return None
 
 
 # ── Consulta de limite ────────────────────────────────────────────────────────
@@ -72,7 +85,7 @@ def verificar_limite_pelo_score(score: int, novo_limite: float) -> dict:
 
 # ── Processamento de solicitação ──────────────────────────────────────────────
 
-def solicitar_aumento_limite(cpf: str, novo_limite: float) -> dict:
+def solicitar_aumento_limite(cpf: str, novo_limite: float, agent=None) -> dict:
     """
     Cria um registro de solicitação de aumento de limite e aprova/rejeita
     com base no score atual do cliente.
@@ -83,10 +96,15 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float) -> dict:
     Args:
         cpf: CPF do cliente (apenas dígitos).
         novo_limite: Novo limite desejado em R$.
+        agent: Injetado pelo Agno — usado para verificar autenticação da sessão.
 
     Returns:
         dict com {status, limite_atual, novo_limite_solicitado, limite_maximo_permitido, mensagem}.
     """
+    erro_auth = _verificar_autorizacao(agent, cpf)
+    if erro_auth:
+        return erro_auth
+
     # 1. Buscar dados atuais do cliente
     dados = consultar_limite_credito(cpf)
     if "erro" in dados:
