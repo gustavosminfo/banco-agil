@@ -89,6 +89,7 @@ def criar_equipe() -> Team:
         add_history_to_context=True,
         add_session_state_to_context=True,
         num_history_runs=10,
+        enable_session_summaries=True,
         instructions=[
             # ── 1. Identidade ────────────────────────────────────────────────
             "Você coordena o atendimento do Banco Ágil.",
