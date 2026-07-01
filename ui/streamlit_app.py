@@ -200,7 +200,9 @@ def _processar_mensagem(user_input: str) -> None:
                 user_id=st.session_state.get("cpf_cliente"),
             ):
                 resposta_raw += chunk
-                placeholder.markdown(_texto_seguro_para_exibir(resposta_raw) + " ▌")
+                texto_visivel = _texto_seguro_para_exibir(resposta_raw)
+                if texto_visivel.strip():
+                    placeholder.markdown(texto_visivel + " ▌")
         except httpx.TimeoutException:
             resposta_raw = (
                 "⏱️ O atendimento está demorando mais que o esperado. "
