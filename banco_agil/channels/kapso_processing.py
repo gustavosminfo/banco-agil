@@ -8,8 +8,10 @@ sem passar pelo endpoint HTTP /teams/{id}/runs (necessário para poder setar
 
 import logging
 import re
+import time
 
 import psycopg
+from agno.db.postgres import PostgresDb
 
 from banco_agil import media_processing
 from banco_agil.channels import kapso_client
@@ -22,6 +24,16 @@ from banco_agil.team import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Pool de conexões Postgres compartilhado entre todas as mensagens do canal
+# WhatsApp, criado uma única vez por processo. criar_equipe() ainda cria uma
+# instância de Team nova por mensagem (isolamento de session_state — mesmo
+# padrão do TeamFactory do AgentOS), mas reutiliza este mesmo `db=` em vez
+# de abrir um pool novo a cada mensagem. Abrir um pool por mensagem foi a
+# causa provável de uma lentidão de ~90s observada em produção antes da
+# primeira chamada ao LLM (contenção de conexões Postgres com o próprio
+# AgentOS/Studio, que usa o mesmo banco).
+_DB_COMPARTILHADO = PostgresDb(db_url=DB_URL)
 
 _RESPOSTA_NAO_SUPORTADO = (
     "No momento ainda não conseguimos processar esse tipo de conteúdo por "
@@ -82,6 +94,7 @@ async def processar_mensagem(payload: dict) -> None:
 
 
 async def _processar_mensagem_interno(payload: dict) -> None:
+    inicio_total = time.monotonic()
     message = payload.get("message") or {}
     conversation = payload.get("conversation") or {}
 
@@ -103,6 +116,11 @@ async def _processar_mensagem_interno(payload: dict) -> None:
         if _ja_processada(conn, message_id):
             logger.info("Mensagem %s já processada anteriormente, ignorando redelivery.", message_id)
             return
+    logger.info(
+        "Checagem de idempotência concluída em %.2fs (message_id=%s).",
+        time.monotonic() - inicio_total,
+        message_id,
+    )
 
     # Indicador "digitando..." — some sozinho ao enviarmos a resposta ou
     # após ~25s (comportamento nativo da Kapso/Meta). Falha aqui é só
@@ -147,7 +165,8 @@ async def _processar_mensagem_interno(payload: dict) -> None:
     # via session_state normalmente; a única perda é a memória de longo
     # prazo entre sessões diferentes do mesmo cliente (feature do Streamlit
     # não replicada aqui no MVP).
-    team = criar_equipe()
+    team = criar_equipe(db=_DB_COMPARTILHADO)
+    inicio = time.monotonic()
     run = await team.arun(
         mensagem_final,
         session_id=session_id,
@@ -157,6 +176,11 @@ async def _processar_mensagem_interno(payload: dict) -> None:
             "telefone_e164": telefone_cliente,
         },
     )
+    duracao = time.monotonic() - inicio
+    if duracao > 30:
+        logger.warning("team.arun() demorou %.1fs (session=%s, message_id=%s).", duracao, session_id, message_id)
+    else:
+        logger.info("team.arun() concluído em %.1fs (session=%s).", duracao, session_id)
     texto_bruto = str(run.content) if run.content else ""
 
     # Mesmo parsing de tags já usado por ui/streamlit_app.py e evals/__main__.py

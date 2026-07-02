@@ -49,13 +49,26 @@ _INITIAL_SESSION_STATE = {
 
 # ── Fábrica da equipe ─────────────────────────────────────────────────────────
 
-def criar_equipe() -> Team:
+def criar_equipe(db: Optional[PostgresDb] = None) -> Team:
     """
     Cria e retorna a equipe (Team) do Banco Ágil registrada no AgentOS.
 
     O AgentOS resolve a sessão (session_id) por requisição via API — o estado
     inicial abaixo é aplicado automaticamente pelo Agno na primeira mensagem
     de cada sessão nova.
+
+    Args:
+        db: Instância de PostgresDb a reutilizar (pool de conexões
+            compartilhado). Se omitido, cria uma nova a cada chamada —
+            comportamento padrão histórico, mantido para não afetar os
+            chamadores existentes (Registry/Studio, TeamFactory do AgentOS,
+            evals). Canais que criam uma instância de Team por mensagem
+            (ex.: o canal WhatsApp, em banco_agil/channels/kapso_processing.py)
+            devem passar uma única instância compartilhada aqui, para evitar
+            abrir um pool de conexões Postgres novo a cada mensagem — causa
+            provável de uma lentidão de ~90s observada em produção antes da
+            primeira chamada ao LLM (contenção de conexões Postgres com o
+            próprio AgentOS/Studio, que usa o mesmo banco).
     """
     return Team(
         id="banco-agil",
@@ -77,7 +90,7 @@ def criar_equipe() -> Team:
         # o modelo seguir a instrução de texto.
         max_iterations=1,
         session_state=_INITIAL_SESSION_STATE.copy(),
-        db=PostgresDb(db_url=DB_URL),
+        db=db if db is not None else PostgresDb(db_url=DB_URL),
         # Memória de cliente, escopada por user_id (CPF, repassado pela UI
         # após autenticação — ver ui/streamlit_app.py). update_memory_on_run
         # (não enable_agentic_memory) por ser uma única chamada extra
@@ -123,6 +136,15 @@ def criar_equipe() -> Team:
             "[AUTH_FAIL] explicitamente — uma pergunta de esclarecimento do membro "
             "NÃO é uma tentativa de autenticação falha e NUNCA deve incrementar esse "
             "contador.",
+
+            # ── 2.2 Sem texto de transição antes de delegar (ANTI-DUPLICAÇÃO) ────
+            "NUNCA escreva texto seu (como 'vou verificar', 'um momento, por favor' "
+            "ou qualquer frase de transição) antes de delegar a um membro. Delegue "
+            "diretamente, sem preâmbulo — a resposta do membro já é a mensagem "
+            "completa e será repassada ao cliente como está. Escrever um preâmbulo "
+            "próprio faz esse texto ficar colado (sem espaço ou quebra de linha) à "
+            "resposta do membro, produzindo saudações ou introduções duplicadas na "
+            "mesma mensagem (ex.: 'Um momento, por favor.Bom dia! Seja bem-vindo...').",
 
             # ── 3. Regra de delegação (ANTI-ALUCINAÇÃO — crítica) ─────────────
             "Ao delegar, distinga dois tipos de dado: ENTRADA (o que o cliente já disse "
