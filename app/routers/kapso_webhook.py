@@ -44,7 +44,22 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
         raise HTTPException(status_code=400, detail="payload inválido")
 
     if payload.get("event") != "whatsapp.message.received":
+        # Diagnóstico temporário: o formato exato do payload da Kapso ainda
+        # está sendo validado (item de spike do plano) — logar as chaves de
+        # topo (não sensível, é só estrutura) ajuda a confirmar o nome real
+        # do campo de evento sem expor conteúdo de mensagens.
+        logger.warning(
+            "Webhook Kapso ignorado — payload.get('event')=%r, chaves de topo=%s",
+            payload.get("event"),
+            list(payload.keys()),
+        )
         return {"status": "ignorado"}
+
+    logger.info(
+        "Webhook Kapso aceito — message.type=%r, chaves de message=%s",
+        (payload.get("message") or {}).get("type"),
+        list((payload.get("message") or {}).keys()),
+    )
 
     # Ack imediato — processamento real roda em background (evita timeout
     # de webhook e retry agressivo do lado da Kapso).
