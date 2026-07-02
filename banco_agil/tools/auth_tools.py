@@ -7,7 +7,8 @@ Lê clientes.csv e valida CPF + data de nascimento.
 import re
 from typing import Optional
 import pandas as pd
-from banco_agil.config import CLIENTES_CSV
+from agno.run import RunContext
+from banco_agil.config import CLIENTES_CSV, MAX_AUTH_ATTEMPTS
 
 
 def _normalizar_cpf(cpf: str) -> str:
@@ -41,13 +42,39 @@ def _normalizar_data(data: str) -> str:
     return data
 
 
-def autenticar_cliente(cpf: str, data_nascimento: str) -> dict:
+def _incrementar_tentativas(run_context: Optional[RunContext]) -> None:
+    """Incrementa tentativas_auth em session_state e encerra a sessão se
+    atingir MAX_AUTH_ATTEMPTS — mesma regra descrita nas instruções do
+    coordenador (banco_agil/team.py), mas aplicada de verdade aqui."""
+    if run_context is None:
+        return
+    if run_context.session_state is None:
+        run_context.session_state = {}
+    tentativas = run_context.session_state.get("tentativas_auth", 0) + 1
+    run_context.session_state["tentativas_auth"] = tentativas
+    if tentativas >= MAX_AUTH_ATTEMPTS:
+        run_context.session_state["encerrado"] = True
+
+
+def autenticar_cliente(cpf: str, data_nascimento: str, run_context: Optional[RunContext] = None) -> dict:
     """
     Valida CPF e data de nascimento contra a base de clientes (clientes.csv).
 
     Args:
         cpf: CPF do cliente (com ou sem pontuação).
         data_nascimento: Data de nascimento em qualquer formato legível.
+        run_context: Injetado pelo Agno — usado para persistir o resultado da
+            autenticação em session_state. Mutações de session_state só são
+            persistidas quando feitas via run_context dentro de uma tool;
+            instruções de texto pedindo ao coordenador para "definir
+            session_state['autenticado'] = True" ao ver uma tag [AUTH_OK]
+            NÃO mutam o estado real — o LLM não tem como executar essa
+            atribuição, só narrar que a fez. Isso nunca causou problema
+            visível até as ferramentas de crédito/entrevista passarem a
+            checar team.session_state['autenticado'] de verdade
+            (_verificar_autorizacao) — bug real observado em produção no
+            canal WhatsApp: aumento de limite aprovado pelo score, mas
+            bloqueado por "sessão não autenticada" mesmo após [AUTH_OK].
 
     Returns:
         dict com chaves:
@@ -79,6 +106,7 @@ def autenticar_cliente(cpf: str, data_nascimento: str) -> dict:
     linha = df[df["cpf"] == cpf_norm]
 
     if linha.empty:
+        _incrementar_tentativas(run_context)
         return {
             "sucesso": False,
             "mensagem": "Dados não encontrados. Verifique as informações e tente novamente.",
@@ -87,6 +115,7 @@ def autenticar_cliente(cpf: str, data_nascimento: str) -> dict:
 
     data_na_base = str(linha.iloc[0]["data_nascimento"]).strip()
     if data_na_base != data_norm:
+        _incrementar_tentativas(run_context)
         return {
             "sucesso": False,
             "mensagem": "Dados não conferem. Verifique a data de nascimento.",
@@ -94,6 +123,17 @@ def autenticar_cliente(cpf: str, data_nascimento: str) -> dict:
         }
 
     cliente = linha.iloc[0]
+
+    if run_context is not None:
+        if run_context.session_state is None:
+            run_context.session_state = {}
+        run_context.session_state["autenticado"]     = True
+        run_context.session_state["cpf"]              = cpf_norm
+        run_context.session_state["nome"]              = str(cliente["nome"])
+        run_context.session_state["score"]             = int(cliente["score"])
+        run_context.session_state["limite_credito"]    = float(cliente["limite_credito"])
+        run_context.session_state["tentativas_auth"]   = 0
+
     return {
         "sucesso": True,
         "mensagem": f"Autenticação realizada com sucesso. Bem-vindo(a), {cliente['nome']}!",
