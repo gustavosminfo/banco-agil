@@ -11,7 +11,6 @@ import re
 import time
 
 import psycopg
-from agno.db.postgres import PostgresDb
 
 from banco_agil import media_processing
 from banco_agil.channels import kapso_client
@@ -24,16 +23,6 @@ from banco_agil.team import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Pool de conexões Postgres compartilhado entre todas as mensagens do canal
-# WhatsApp, criado uma única vez por processo. criar_equipe() ainda cria uma
-# instância de Team nova por mensagem (isolamento de session_state — mesmo
-# padrão do TeamFactory do AgentOS), mas reutiliza este mesmo `db=` em vez
-# de abrir um pool novo a cada mensagem. Abrir um pool por mensagem foi a
-# causa provável de uma lentidão de ~90s observada em produção antes da
-# primeira chamada ao LLM (contenção de conexões Postgres com o próprio
-# AgentOS/Studio, que usa o mesmo banco).
-_DB_COMPARTILHADO = PostgresDb(db_url=DB_URL)
 
 _RESPOSTA_NAO_SUPORTADO = (
     "No momento ainda não conseguimos processar esse tipo de conteúdo por "
@@ -165,7 +154,15 @@ async def _processar_mensagem_interno(payload: dict) -> None:
     # via session_state normalmente; a única perda é a memória de longo
     # prazo entre sessões diferentes do mesmo cliente (feature do Streamlit
     # não replicada aqui no MVP).
-    team = criar_equipe(db=_DB_COMPARTILHADO)
+    # PostgresDb novo a cada mensagem (não compartilhado entre chamadas):
+    # PostgresDb usa scoped_session do SQLAlchemy com expire_on_commit=False
+    # (identity map por thread) — reutilizar a mesma instância entre
+    # mensagens que podem rodar em threads recicladas do pool assíncrono
+    # causou leitura de session_state CACHEADO/desatualizado (bug real
+    # observado em produção: autenticação "esquecida" no meio da sessão).
+    # Criar uma instância nova por mensagem evita esse risco — é o mesmo
+    # custo que o TeamFactory do AgentOS já paga por requisição HTTP.
+    team = criar_equipe()
     inicio = time.monotonic()
     run = await team.arun(
         mensagem_final,
