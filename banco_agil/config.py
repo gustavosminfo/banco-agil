@@ -133,3 +133,6 @@ KAPSO_API_KEY = os.getenv("KAPSO_API_KEY", "")
 KAPSO_WEBHOOK_SECRET = os.getenv("KAPSO_WEBHOOK_SECRET", "")
 KAPSO_PHONE_NUMBER_ID = os.getenv("KAPSO_PHONE_NUMBER_ID", "")
 KAPSO_API_BASE = "https://api.kapso.ai/meta/whatsapp/v24.0"
+# API de plataforma da Kapso (distinta da API Meta/WhatsApp acima) — usada
+# para gerenciar o estado da conversa em si (ex.: encerrar), não mensagens.
+KAPSO_PLATFORM_API_BASE = "https://api.kapso.ai/platform/v1"

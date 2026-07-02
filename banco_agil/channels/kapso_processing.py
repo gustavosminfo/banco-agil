@@ -182,6 +182,11 @@ async def _processar_mensagem_interno(payload: dict) -> None:
 
     if detectar_encerramento(texto_bruto):
         logger.info("Sessão WhatsApp %s encerrada.", session_id)
+        # Mantém o estado da conversa sincronizado no painel da Kapso —
+        # só dispara quando a tag [ENCERRADO] realmente aparece na resposta
+        # (ou seja, a ferramenta encerrar_atendimento foi de fato chamada,
+        # não uma despedida genérica gerada pelo LLM sem usar a ferramenta).
+        kapso_client.encerrar_conversa(conversation_id)
 
 
 async def _extrair_texto_da_mensagem(message: dict, message_type: str, phone_number_id: str) -> str | None:

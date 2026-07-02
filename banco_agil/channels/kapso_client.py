@@ -9,7 +9,7 @@ import re
 
 import httpx
 
-from banco_agil.config import KAPSO_API_BASE, KAPSO_API_KEY
+from banco_agil.config import KAPSO_API_BASE, KAPSO_API_KEY, KAPSO_PLATFORM_API_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,28 @@ def marcar_como_lida_com_digitando(phone_number_id: str, message_id: str) -> Non
         resp.raise_for_status()
     except Exception:
         logger.warning("Falha ao marcar mensagem como lida / exibir indicador de digitação.")
+
+
+def encerrar_conversa(conversation_id: str) -> None:
+    """
+    Marca a conversa como encerrada ("ended") na Kapso — usado quando o
+    Team chama a ferramenta encerrar_atendimento (tag [ENCERRADO] na
+    resposta), para manter o estado da conversa sincronizado entre o
+    Banco Ágil e o painel da Kapso.
+
+    Falha aqui é apenas cosmética (não afeta o atendimento ao cliente, que
+    já recebeu a mensagem de despedida) — nunca deve interromper o fluxo.
+    """
+    try:
+        resp = httpx.patch(
+            f"{KAPSO_PLATFORM_API_BASE}/whatsapp/conversations/{conversation_id}",
+            headers={"X-API-Key": KAPSO_API_KEY, "Content-Type": "application/json"},
+            json={"whatsapp_conversation": {"status": "ended"}},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+    except Exception:
+        logger.warning("Falha ao encerrar conversa na Kapso (conversation_id=%s).", conversation_id)
 
 
 def baixar_midia(
