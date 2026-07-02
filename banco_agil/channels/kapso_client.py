@@ -4,7 +4,9 @@ Cliente REST puro para a Kapso (WhatsApp Business API) — sem SDK, sem Node.js.
 Mesmo padrão httpx curto/síncrono usado em banco_agil/tools/exchange_tools.py.
 """
 
+import asyncio
 import logging
+import random
 import re
 
 import httpx
@@ -18,10 +20,50 @@ logger = logging.getLogger(__name__)
 # cliente com os asteriscos duplicados literais em vez de negrito.
 _MARKDOWN_BOLD = re.compile(r"\*\*(.+?)\*\*")
 
+# Respostas longas ficam parcialmente ocultas no WhatsApp atrás de um botão
+# "Ler mais" — dividimos em partes menores, respeitando parágrafos, para
+# melhorar a legibilidade. Tamanho aproximado por parte (não é um limite
+# rígido: um parágrafo isolado maior que isso nunca é cortado no meio).
+_TAMANHO_ALVO_PARTE = 450
+_DELAY_MIN_ENTRE_PARTES = 3.0
+_DELAY_MAX_ENTRE_PARTES = 5.0
+
 
 def _markdown_para_whatsapp(texto: str) -> str:
     """Converte formatação Markdown para a sintaxe de formatação do WhatsApp."""
     return _MARKDOWN_BOLD.sub(r"*\1*", texto)
+
+
+def dividir_em_partes(texto: str, tamanho_alvo: int = _TAMANHO_ALVO_PARTE) -> list[str]:
+    """
+    Divide um texto longo em partes menores para envio como mensagens
+    separadas no WhatsApp.
+
+    Nunca corta no meio de um parágrafo (frase ou lista) — agrupa
+    parágrafos consecutivos (separados por linha em branco) até que
+    juntá-los ultrapasse `tamanho_alvo` caracteres, então inicia uma nova
+    parte. Um parágrafo isolado maior que `tamanho_alvo` é mantido inteiro
+    (nunca dividido no meio).
+    """
+    paragrafos = [p for p in texto.split("\n\n") if p.strip()]
+    if not paragrafos:
+        return [texto] if texto.strip() else []
+
+    partes: list[str] = []
+    atual: list[str] = []
+
+    for paragrafo in paragrafos:
+        candidato = "\n\n".join(atual + [paragrafo])
+        if atual and len(candidato) > tamanho_alvo:
+            partes.append("\n\n".join(atual))
+            atual = [paragrafo]
+        else:
+            atual.append(paragrafo)
+
+    if atual:
+        partes.append("\n\n".join(atual))
+
+    return partes
 
 
 def enviar_mensagem(
@@ -59,6 +101,36 @@ def enviar_mensagem(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+async def enviar_mensagem_dividida(
+    phone_number_id: str,
+    para: str,
+    texto: str,
+    reply_to_wamid: str | None = None,
+) -> None:
+    """
+    Envia uma resposta longa dividida em partes menores (ver dividir_em_partes),
+    com um intervalo de alguns segundos entre cada parte — evita o botão
+    "Ler mais" do WhatsApp e melhora a legibilidade. Para textos curtos
+    (que já cabem em uma única parte), envia normalmente sem atraso extra.
+
+    Só a primeira parte referencia `reply_to_wamid` (threading da resposta
+    original); as partes seguintes são apenas continuação.
+    """
+    partes = dividir_em_partes(texto)
+    if not partes:
+        return
+
+    for i, parte in enumerate(partes):
+        enviar_mensagem(
+            phone_number_id=phone_number_id,
+            para=para,
+            texto=parte,
+            reply_to_wamid=reply_to_wamid if i == 0 else None,
+        )
+        if i < len(partes) - 1:
+            await asyncio.sleep(random.uniform(_DELAY_MIN_ENTRE_PARTES, _DELAY_MAX_ENTRE_PARTES))
 
 
 def marcar_como_lida_com_digitando(phone_number_id: str, message_id: str) -> None:

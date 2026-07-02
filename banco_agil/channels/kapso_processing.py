@@ -173,7 +173,7 @@ async def _processar_mensagem_interno(payload: dict) -> None:
     if not resposta_limpa.strip():
         resposta_limpa = "Desculpe, tivemos uma instabilidade temporária. Tente novamente em instantes."
 
-    kapso_client.enviar_mensagem(
+    await kapso_client.enviar_mensagem_dividida(
         phone_number_id=phone_number_id,
         para=telefone_cliente,
         texto=resposta_limpa,
