@@ -48,7 +48,7 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
         # está sendo validado (item de spike do plano) — logar só a
         # ESTRUTURA (chaves/tipos, nunca valores como texto de mensagem ou
         # telefone) ajuda a confirmar o formato real sem expor PII.
-        def _estrutura(v, profundidade=2):
+        def _estrutura(v, profundidade=5):
             if profundidade <= 0:
                 return type(v).__name__
             if isinstance(v, dict):
@@ -58,8 +58,8 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
             return type(v).__name__
 
         logger.warning(
-            "Webhook Kapso ignorado — payload.get('event')=%r, estrutura=%s",
-            payload.get("event"),
+            "Webhook Kapso ignorado — payload.get('type')=%r, estrutura=%s",
+            payload.get("type"),
             _estrutura(payload),
         )
         return {"status": "ignorado"}
