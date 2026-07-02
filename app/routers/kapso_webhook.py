@@ -45,13 +45,22 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
 
     if payload.get("event") != "whatsapp.message.received":
         # Diagnóstico temporário: o formato exato do payload da Kapso ainda
-        # está sendo validado (item de spike do plano) — logar as chaves de
-        # topo (não sensível, é só estrutura) ajuda a confirmar o nome real
-        # do campo de evento sem expor conteúdo de mensagens.
+        # está sendo validado (item de spike do plano) — logar só a
+        # ESTRUTURA (chaves/tipos, nunca valores como texto de mensagem ou
+        # telefone) ajuda a confirmar o formato real sem expor PII.
+        def _estrutura(v, profundidade=2):
+            if profundidade <= 0:
+                return type(v).__name__
+            if isinstance(v, dict):
+                return {k: _estrutura(v[k], profundidade - 1) for k in v}
+            if isinstance(v, list):
+                return [f"list[{len(v)}]"] + ([_estrutura(v[0], profundidade - 1)] if v else [])
+            return type(v).__name__
+
         logger.warning(
-            "Webhook Kapso ignorado — payload.get('event')=%r, chaves de topo=%s",
+            "Webhook Kapso ignorado — payload.get('event')=%r, estrutura=%s",
             payload.get("event"),
-            list(payload.keys()),
+            _estrutura(payload),
         )
         return {"status": "ignorado"}
 
