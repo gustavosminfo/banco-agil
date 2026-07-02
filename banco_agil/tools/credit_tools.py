@@ -4,11 +4,15 @@ Ferramentas do Agente de Crédito.
 Consulta limite, processa solicitação de aumento e verifica elegibilidade via score.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional, Union
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV, SCORE_LIMITE_CSV, SOLICITACOES_CSV
+from banco_agil.csv_lock import lock_para
 from banco_agil.tools.auth_tools import _normalizar_cpf
+
+logger = logging.getLogger(__name__)
 
 
 def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
@@ -157,22 +161,34 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
     }
 
     try:
-        try:
-            df_sol = pd.read_csv(SOLICITACOES_CSV)
-        except FileNotFoundError:
-            df_sol = pd.DataFrame(columns=nova_linha.keys())
+        with lock_para(SOLICITACOES_CSV):
+            try:
+                df_sol = pd.read_csv(SOLICITACOES_CSV)
+            except FileNotFoundError:
+                df_sol = pd.DataFrame(columns=nova_linha.keys())
 
-        df_sol = pd.concat(
-            [df_sol, pd.DataFrame([nova_linha])],
-            ignore_index=True,
-        )
-        df_sol.to_csv(SOLICITACOES_CSV, index=False)
-    except Exception as exc:
-        return {"status": "erro", "mensagem": f"Erro ao gravar solicitação: {exc}"}
+            df_sol = pd.concat(
+                [df_sol, pd.DataFrame([nova_linha])],
+                ignore_index=True,
+            )
+            df_sol.to_csv(SOLICITACOES_CSV, index=False)
+    except Exception:
+        logger.exception("Falha ao gravar solicitação de aumento de limite (cpf mascarado indisponível aqui).")
+        return {"status": "erro", "mensagem": "Não foi possível registrar a solicitação. Tente novamente."}
 
     # 5. Se aprovado, atualizar o limite na base de clientes
     if status == "aprovado":
-        _atualizar_limite_no_csv(cpf, novo_limite)
+        try:
+            _atualizar_limite_no_csv(cpf, novo_limite)
+        except Exception:
+            logger.exception("Falha ao atualizar limite_credito em clientes.csv.")
+            return {
+                "status": "erro",
+                "mensagem": (
+                    "A solicitação foi aprovada e registrada, mas houve uma falha técnica "
+                    "ao atualizar seu limite. Por favor, tente novamente em instantes."
+                ),
+            }
 
     return {
         "status":                  status,
@@ -197,7 +213,13 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
 def _atualizar_limite_no_csv(cpf: str, novo_limite: float) -> None:
-    """Atualiza o limite_credito de um cliente na base clientes.csv."""
-    df = pd.read_csv(CLIENTES_CSV, dtype={"cpf": str})
-    df.loc[df["cpf"] == cpf, "limite_credito"] = novo_limite
-    df.to_csv(CLIENTES_CSV, index=False)
+    """Atualiza o limite_credito de um cliente na base clientes.csv.
+
+    clientes.csv também é escrito por interview_tools.py::atualizar_score_cliente
+    — usa o mesmo lock (por caminho de arquivo) para serializar as duas
+    escritas e evitar leitura de um arquivo parcialmente escrito.
+    """
+    with lock_para(CLIENTES_CSV):
+        df = pd.read_csv(CLIENTES_CSV, dtype={"cpf": str})
+        df.loc[df["cpf"] == cpf, "limite_credito"] = novo_limite
+        df.to_csv(CLIENTES_CSV, index=False)

@@ -4,10 +4,14 @@ Ferramentas do Agente de Entrevista de Crédito.
 Calcula o novo score com a fórmula ponderada do desafio e atualiza clientes.csv.
 """
 
+import logging
 from typing import Literal, Optional
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV
+from banco_agil.csv_lock import lock_para
 from banco_agil.tools.auth_tools import _normalizar_cpf
+
+logger = logging.getLogger(__name__)
 
 
 def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
@@ -139,18 +143,26 @@ def atualizar_score_cliente(cpf: str, novo_score: int, team=None) -> dict:
     if erro_auth:
         return erro_auth
 
+    # clientes.csv também é escrito por credit_tools.py::_atualizar_limite_no_csv
+    # — usa o mesmo lock (por caminho de arquivo) para serializar as duas
+    # escritas e evitar leitura de um arquivo parcialmente escrito.
     try:
-        df = pd.read_csv(CLIENTES_CSV, dtype={"cpf": str})
-    except FileNotFoundError:
-        return {"sucesso": False, "mensagem": "Base de clientes indisponível."}
+        with lock_para(CLIENTES_CSV):
+            try:
+                df = pd.read_csv(CLIENTES_CSV, dtype={"cpf": str})
+            except FileNotFoundError:
+                return {"sucesso": False, "mensagem": "Base de clientes indisponível."}
 
-    linha_idx = df.index[df["cpf"] == cpf].tolist()
-    if not linha_idx:
-        return {"sucesso": False, "mensagem": f"Cliente CPF {cpf} não encontrado."}
+            linha_idx = df.index[df["cpf"] == cpf].tolist()
+            if not linha_idx:
+                return {"sucesso": False, "mensagem": f"Cliente CPF {cpf} não encontrado."}
 
-    score_anterior = int(df.at[linha_idx[0], "score"])
-    df.at[linha_idx[0], "score"] = novo_score
-    df.to_csv(CLIENTES_CSV, index=False)
+            score_anterior = int(df.at[linha_idx[0], "score"])
+            df.at[linha_idx[0], "score"] = novo_score
+            df.to_csv(CLIENTES_CSV, index=False)
+    except Exception:
+        logger.exception("Falha ao atualizar score em clientes.csv.")
+        return {"sucesso": False, "mensagem": "Não foi possível atualizar o score. Tente novamente."}
 
     return {
         "sucesso":        True,
