@@ -255,9 +255,18 @@ def _processar_audio(message: dict, phone_number_id: str) -> str:
     kapso_meta = message.get("kapso") or {}
     audio_info = message.get("audio") or {}
 
-    # Transcrição própria via DeepInfra tem prioridade (controle de
-    # qualidade/modelo, conforme requisito do projeto); cai para o
-    # transcript nativo da Kapso se o download ou a transcrição falharem.
+    # Transcript nativo da Kapso tem prioridade quando disponível: evita um
+    # download + chamada extra à DeepInfra (custo e latência), e a Kapso
+    # transcreve boa parte dos áudios dentro de uma franquia gratuita —
+    # quando essa franquia se esgota, a Kapso deixa de enviar o transcript,
+    # e cai-se automaticamente para a transcrição própria via DeepInfra
+    # Whisper (mais lenta/com custo, mas garante que o áudio sempre seja
+    # processado).
+    transcript_nativo = (kapso_meta.get("transcript") or {}).get("text")
+    if transcript_nativo:
+        logger.info("Usando transcript nativo da Kapso (sem chamada à DeepInfra).")
+        return str(transcript_nativo)
+
     baixado = kapso_client.baixar_midia(
         media_url_do_webhook=_media_url_do_kapso(kapso_meta),
         media_id=audio_info.get("id") or kapso_meta.get("media_id"),
@@ -269,13 +278,8 @@ def _processar_audio(message: dict, phone_number_id: str) -> str:
         if texto:
             return texto
 
-    transcript_nativo = (kapso_meta.get("transcript") or {}).get("text")
-    if transcript_nativo:
-        logger.info("Usando transcript nativo da Kapso como fallback (DeepInfra falhou ou indisponível).")
-        return str(transcript_nativo)
-
     logger.warning(
-        "Falha ao obter áudio (download e transcript nativo indisponíveis) — estrutura de message: %s",
+        "Falha ao obter áudio (transcript nativo ausente e download/transcrição própria falharam) — estrutura de message: %s",
         _estrutura_diagnostico(message),
     )
     return ""
