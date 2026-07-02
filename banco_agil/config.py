@@ -136,3 +136,12 @@ KAPSO_API_BASE = "https://api.kapso.ai/meta/whatsapp/v24.0"
 # API de plataforma da Kapso (distinta da API Meta/WhatsApp acima) — usada
 # para gerenciar o estado da conversa em si (ex.: encerrar), não mensagens.
 KAPSO_PLATFORM_API_BASE = "https://api.kapso.ai/platform/v1"
+
+# ── Canal de Ligação (VAPI.AI) ────────────────────────────────────────────────
+# A VAPI orquestra o Assistant de voz de forma independente do Agno (modelo,
+# prompt, STT/TTS, tools) — nosso servidor só recebe tool-calls via webhook e
+# executa a lógica de negócio real (banco_agil/tools/*.py), sem passar pelo
+# Team. Ver banco_agil/channels/vapi_processing.py e
+# docs/vapi_assistant_prompt.md.
+VAPI_API_KEY = os.getenv("VAPI_API_KEY", "")  # gerenciar Assistant/número via API/CLI (setup, não usado em runtime)
+VAPI_SERVER_SECRET = os.getenv("VAPI_SERVER_SECRET", "")  # valida o header X-Vapi-Secret de cada webhook

@@ -14,6 +14,7 @@ from agno.os import AgentOS
 from agno.registry import Registry
 
 from app.routers.kapso_webhook import router as kapso_router
+from app.routers.vapi_webhook import router as vapi_router
 from banco_agil.agents import cambio_agent, credito_agent, entrevista_agent, triagem_agent
 from banco_agil.config import DB_URL, get_coordinator_model
 from banco_agil.team import criar_equipe, criar_equipe_factory
@@ -92,6 +93,12 @@ app = agent_os.get_app()
 # Canal WhatsApp (Kapso) — aditivo: router isolado, não toca em nenhuma rota
 # do AgentOS. Ver banco_agil/channels/ para a lógica de negócio do canal.
 app.include_router(kapso_router)
+
+# Canal de Ligação (VAPI.AI) — também aditivo. A orquestração (modelo,
+# prompt, voz) roda inteiramente na VAPI, fora do Agno; este router só
+# executa tool-calls que a VAPI dispara durante a ligação. Ver
+# banco_agil/channels/vapi_processing.py e docs/vapi_assistant_prompt.md.
+app.include_router(vapi_router)
 
 # API key authentication is handled natively pelo Agno via a variável de
 # ambiente OS_SECURITY_KEY (lida por AgnoAPISettings). Quando definida no
