@@ -9,7 +9,7 @@ from typing import Literal, Optional
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV
 from banco_agil.csv_lock import lock_para
-from banco_agil.tools.auth_tools import _normalizar_cpf
+from banco_agil.tools.auth_tools import _mascarar_cpf, _normalizar_cpf
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,15 @@ def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
     if not session_state or "autenticado" not in session_state:
         return None  # Fora de contexto de team (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
+        logger.warning("atualizar_score_cliente bloqueado: sessão não autenticada (cpf=%s).", _mascarar_cpf(cpf))
         return {"sucesso": False, "mensagem": "Operação não autorizada: autenticação necessária."}
     cpf_autenticado = _normalizar_cpf(session_state.get("cpf", ""))
     if cpf_autenticado and cpf_autenticado != _normalizar_cpf(cpf):
+        logger.warning(
+            "atualizar_score_cliente bloqueado: CPF do argumento (%s) difere do CPF da sessão (%s).",
+            _mascarar_cpf(cpf),
+            _mascarar_cpf(cpf_autenticado),
+        )
         return {"sucesso": False, "mensagem": "Operação não autorizada: acesso negado."}
     return None
 

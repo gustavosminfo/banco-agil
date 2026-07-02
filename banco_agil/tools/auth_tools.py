@@ -15,6 +15,15 @@ def _normalizar_cpf(cpf: str) -> str:
     return re.sub(r"\D", "", cpf.strip())
 
 
+def _mascarar_cpf(cpf: str) -> str:
+    """Mascara um CPF (já normalizado ou não) para logging seguro — nunca
+    logar CPF em texto puro."""
+    digitos = _normalizar_cpf(cpf or "")
+    if len(digitos) != 11:
+        return "***"
+    return f"***.***.**{digitos[-3:-2]}-{digitos[-2:]}"
+
+
 def _normalizar_data(data: str) -> str:
     """
     Aceita datas em vários formatos e normaliza para YYYY-MM-DD.

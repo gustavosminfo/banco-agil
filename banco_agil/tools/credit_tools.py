@@ -10,7 +10,7 @@ from typing import Literal, Optional, Union
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV, SCORE_LIMITE_CSV, SOLICITACOES_CSV
 from banco_agil.csv_lock import lock_para
-from banco_agil.tools.auth_tools import _normalizar_cpf
+from banco_agil.tools.auth_tools import _mascarar_cpf, _normalizar_cpf
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,15 @@ def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
     if not session_state or "autenticado" not in session_state:
         return None  # Fora de contexto de team (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
+        logger.warning("solicitar_aumento_limite bloqueado: sessão não autenticada (cpf=%s).", _mascarar_cpf(cpf))
         return {"status": "erro", "mensagem": "Operação não autorizada: autenticação necessária."}
     cpf_autenticado = _normalizar_cpf(session_state.get("cpf", ""))
     if cpf_autenticado and cpf_autenticado != _normalizar_cpf(cpf):
+        logger.warning(
+            "solicitar_aumento_limite bloqueado: CPF do argumento (%s) difere do CPF da sessão (%s).",
+            _mascarar_cpf(cpf),
+            _mascarar_cpf(cpf_autenticado),
+        )
         return {"status": "erro", "mensagem": "Operação não autorizada: acesso negado."}
     return None
 
@@ -125,6 +131,7 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
     # 1. Buscar dados atuais do cliente
     dados = consultar_limite_credito(cpf)
     if "erro" in dados:
+        logger.warning("solicitar_aumento_limite: consultar_limite_credito falhou (cpf=%s): %s", _mascarar_cpf(cpf), dados["erro"])
         return {"status": "erro", "mensagem": dados["erro"]}
 
     limite_atual = dados["limite_atual"]
@@ -145,6 +152,7 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
     # 3. Verificar elegibilidade pelo score
     elegibilidade = verificar_limite_pelo_score(score, novo_limite)
     if "erro" in elegibilidade:
+        logger.warning("solicitar_aumento_limite: verificar_limite_pelo_score falhou (cpf=%s): %s", _mascarar_cpf(cpf), elegibilidade["erro"])
         return {"status": "erro", "mensagem": elegibilidade["erro"]}
 
     status: Literal["aprovado", "rejeitado"] = (
