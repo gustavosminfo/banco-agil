@@ -44,7 +44,10 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
         raise HTTPException(status_code=400, detail="payload inválido")
 
     if payload.get("type") != "whatsapp.message.received":
-        logger.info("Webhook Kapso ignorado — payload.get('type')=%r (evento não tratado).", payload.get("type"))
+        # A Kapso também envia webhooks de status de entrega/leitura pelo
+        # mesmo endpoint (ex.: whatsapp.message.status) — esperado e
+        # frequente, não precisa de nível INFO/WARNING.
+        logger.debug("Webhook Kapso ignorado — payload.get('type')=%r (evento não tratado).", payload.get("type"))
         return {"status": "ignorado"}
 
     # A Kapso agrupa mensagens em lote: os itens reais (cada um com
