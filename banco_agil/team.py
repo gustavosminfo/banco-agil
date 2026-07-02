@@ -91,18 +91,20 @@ def criar_equipe(db: Optional[PostgresDb] = None) -> Team:
         max_iterations=1,
         session_state=_INITIAL_SESSION_STATE.copy(),
         db=db if db is not None else PostgresDb(db_url=DB_URL),
-        # Memória de cliente, escopada por user_id (CPF, repassado pela UI
-        # após autenticação — ver ui/streamlit_app.py). update_memory_on_run
-        # (não enable_agentic_memory) por ser uma única chamada extra
-        # determinística por turno, em vez do "agentic memory token trap"
-        # documentado pelo Agno (custo pode multiplicar 8x conforme memórias
-        # acumulam, já que o agente decide quando chamar a ferramenta de
-        # memória, podendo chamar várias vezes por conversa).
-        update_memory_on_run=True,
+        # Memória de cliente (update_memory_on_run) e resumo de sessão
+        # (enable_session_summaries) DESLIGADOS: cada um adiciona uma
+        # chamada extra de LLM sequencial em TODO turno. Investigação de
+        # latência (2026-07) mediu 5-7 chamadas sequenciais à DeepInfra por
+        # turno único do cliente, totalizando 50-75s de base estrutural
+        # (fora picos de variância de latência do provedor, que empilham
+        # sobre essa base) — essas duas features respondiam por 2 dessas
+        # chamadas. Desligadas a pedido explícito para reduzir a latência
+        # percebida no canal WhatsApp.
+        update_memory_on_run=False,
+        enable_session_summaries=False,
         add_history_to_context=True,
         add_session_state_to_context=True,
         num_history_runs=10,
-        enable_session_summaries=True,
         instructions=[
             # ── 1. Identidade ────────────────────────────────────────────────
             "Você coordena o atendimento do Banco Ágil.",
