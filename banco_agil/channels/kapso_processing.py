@@ -9,6 +9,7 @@ sem passar pelo endpoint HTTP /teams/{id}/runs (necessário para poder setar
 import logging
 import re
 import time
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 
@@ -47,28 +48,65 @@ def _mascarar_cpf(cpf: str) -> str:
     return f"***.***.**{digitos[-3:-2]}-{digitos[-2:]}"
 
 
+_JANELA_RAJADA_SEGUNDOS = 30
+
+
 def _garantir_tabela_idempotencia(conn: psycopg.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS kapso_webhook_events (
-            message_id  TEXT PRIMARY KEY,
-            received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            message_id      TEXT PRIMARY KEY,
+            conversation_id TEXT,
+            received_at     TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """
     )
+    # Coluna adicionada depois da criação inicial da tabela — idempotente
+    # em deploys que já tinham a tabela sem conversation_id.
+    conn.execute("ALTER TABLE kapso_webhook_events ADD COLUMN IF NOT EXISTS conversation_id TEXT")
     conn.commit()
 
 
-def _ja_processada(conn: psycopg.Connection, message_id: str) -> bool:
-    """Registra o message_id como processado; retorna True se JÁ existia
-    (webhook redelivery), False se é a primeira vez (segue o processamento)."""
+def _ja_processada(conn: psycopg.Connection, message_id: str, conversation_id: str) -> bool:
+    """Registra o message_id (com conversation_id, usado para detectar
+    rajadas de mensagens — ver _deve_citar_mensagem) como processado;
+    retorna True se JÁ existia (webhook redelivery), False se é a primeira
+    vez (segue o processamento)."""
     cur = conn.execute(
-        "INSERT INTO kapso_webhook_events (message_id) VALUES (%s) "
+        "INSERT INTO kapso_webhook_events (message_id, conversation_id) VALUES (%s, %s) "
         "ON CONFLICT DO NOTHING",
-        (message_id,),
+        (message_id, conversation_id),
     )
     conn.commit()
     return cur.rowcount == 0
+
+
+def _deve_citar_mensagem(conversation_id: str) -> bool:
+    """
+    Decide se a resposta deve usar a funcionalidade "responder/citar" do
+    WhatsApp (reply_to_wamid). Só faz sentido citar quando há ambiguidade
+    sobre a qual mensagem do cliente a resposta se refere — ou seja, quando
+    o cliente enviou 2+ mensagens na mesma conversa dentro de uma janela de
+    30s. Consultado no momento do ENVIO da resposta (não no recebimento):
+    como o registro de idempotência é feito assim que o webhook chega
+    (antes do processamento lento), uma segunda mensagem que chegou
+    enquanto a primeira ainda estava sendo processada já aparece nessa
+    contagem a tempo.
+    """
+    corte = datetime.now(timezone.utc) - timedelta(seconds=_JANELA_RAJADA_SEGUNDOS)
+    dsn = _dsn_psycopg(DB_URL)
+    try:
+        with psycopg.connect(dsn) as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*) FROM kapso_webhook_events "
+                "WHERE conversation_id = %s AND received_at >= %s",
+                (conversation_id, corte),
+            )
+            (total,) = cur.fetchone()
+            return total >= 2
+    except Exception:
+        logger.exception("Falha ao checar rajada de mensagens — assumindo citação desligada.")
+        return False
 
 
 async def processar_mensagem(payload: dict) -> None:
@@ -99,10 +137,14 @@ async def _processar_mensagem_interno(payload: dict) -> None:
 
     # Idempotência: webhooks podem ser reentregues pela Kapso em caso de
     # timeout/retry — nunca processar (nem responder) a mesma mensagem 2x.
+    # Também serve de base para detectar rajadas de mensagens (ver
+    # _deve_citar_mensagem): o registro é feito AGORA, antes do
+    # processamento lento, então uma 2ª mensagem que chegue enquanto esta
+    # ainda está sendo processada já aparece na contagem a tempo do envio.
     dsn = _dsn_psycopg(DB_URL)
     with psycopg.connect(dsn) as conn:
         _garantir_tabela_idempotencia(conn)
-        if _ja_processada(conn, message_id):
+        if _ja_processada(conn, message_id, conversation_id):
             logger.info("Mensagem %s já processada anteriormente, ignorando redelivery.", message_id)
             return
     logger.info(
@@ -124,7 +166,7 @@ async def _processar_mensagem_interno(payload: dict) -> None:
             phone_number_id=phone_number_id,
             para=telefone_cliente,
             texto=_RESPOSTA_NAO_SUPORTADO,
-            reply_to_wamid=message_id,
+            reply_to_wamid=message_id if _deve_citar_mensagem(conversation_id) else None,
         )
         return
 
@@ -134,7 +176,7 @@ async def _processar_mensagem_interno(payload: dict) -> None:
             phone_number_id=phone_number_id,
             para=telefone_cliente,
             texto="Desculpe, não consegui processar esse conteúdo. Pode tentar novamente ou enviar em texto?",
-            reply_to_wamid=message_id,
+            reply_to_wamid=message_id if _deve_citar_mensagem(conversation_id) else None,
         )
         return
 
@@ -194,11 +236,15 @@ async def _processar_mensagem_interno(payload: dict) -> None:
     if not resposta_limpa.strip():
         resposta_limpa = "Desculpe, tivemos uma instabilidade temporária. Tente novamente em instantes."
 
+    # Checado aqui (após o processamento, que pode levar dezenas de
+    # segundos) e não no recebimento — é só neste momento que sabemos se
+    # outras mensagens do cliente chegaram nesse meio-tempo.
+    reply_to_wamid = message_id if _deve_citar_mensagem(conversation_id) else None
     await kapso_client.enviar_mensagem_dividida(
         phone_number_id=phone_number_id,
         para=telefone_cliente,
         texto=resposta_limpa,
-        reply_to_wamid=message_id,
+        reply_to_wamid=reply_to_wamid,
     )
 
     if detectar_encerramento(texto_bruto):
