@@ -5,12 +5,23 @@ Mesmo padrão httpx curto/síncrono usado em banco_agil/tools/exchange_tools.py.
 """
 
 import logging
+import re
 
 import httpx
 
 from banco_agil.config import KAPSO_API_BASE, KAPSO_API_KEY
 
 logger = logging.getLogger(__name__)
+
+# O coordenador (markdown=True) responde em Markdown padrão (**negrito**),
+# mas o WhatsApp usa um asterisco só (*negrito*) — **texto** chega ao
+# cliente com os asteriscos duplicados literais em vez de negrito.
+_MARKDOWN_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _markdown_para_whatsapp(texto: str) -> str:
+    """Converte formatação Markdown para a sintaxe de formatação do WhatsApp."""
+    return _MARKDOWN_BOLD.sub(r"*\1*", texto)
 
 
 def enviar_mensagem(
@@ -35,7 +46,7 @@ def enviar_mensagem(
         "messaging_product": "whatsapp",
         "to": para,
         "type": "text",
-        "text": {"body": texto},
+        "text": {"body": _markdown_para_whatsapp(texto)},
     }
     if reply_to_wamid:
         body["context"] = {"message_id": reply_to_wamid}
@@ -48,6 +59,37 @@ def enviar_mensagem(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def marcar_como_lida_com_digitando(phone_number_id: str, message_id: str) -> None:
+    """
+    Marca a mensagem original como lida e exibe o indicador "digitando..."
+    no WhatsApp do cliente enquanto o processamento (que pode levar minutos)
+    está em andamento.
+
+    O indicador some automaticamente ao enviarmos a resposta (enviar_mensagem)
+    ou após ~25s, o que ocorrer primeiro — comportamento nativo da Kapso/Meta,
+    não há como estendê-lo além disso.
+
+    Falha aqui é apenas cosmética (o cliente não vê o indicador, mas o
+    atendimento segue normalmente) — nunca deve interromper o processamento.
+    """
+    body = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {"type": "text"},
+    }
+    try:
+        resp = httpx.post(
+            f"{KAPSO_API_BASE}/{phone_number_id}/messages",
+            headers={"X-API-Key": KAPSO_API_KEY, "Content-Type": "application/json"},
+            json=body,
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+    except Exception:
+        logger.warning("Falha ao marcar mensagem como lida / exibir indicador de digitação.")
 
 
 def baixar_midia(

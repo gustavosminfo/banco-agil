@@ -104,6 +104,11 @@ async def _processar_mensagem_interno(payload: dict) -> None:
             logger.info("Mensagem %s já processada anteriormente, ignorando redelivery.", message_id)
             return
 
+    # Indicador "digitando..." — some sozinho ao enviarmos a resposta ou
+    # após ~25s (comportamento nativo da Kapso/Meta). Falha aqui é só
+    # cosmética, nunca deve interromper o atendimento.
+    kapso_client.marcar_como_lida_com_digitando(phone_number_id, message_id)
+
     mensagem_final = await _extrair_texto_da_mensagem(message, message_type, phone_number_id)
     if mensagem_final is None:
         # Tipo não suportado (vídeo/documento/desconhecido) — resposta fixa,

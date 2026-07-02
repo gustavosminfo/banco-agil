@@ -7,17 +7,22 @@ Calcula o novo score com a fórmula ponderada do desafio e atualiza clientes.csv
 from typing import Literal, Optional
 import pandas as pd
 from banco_agil.config import CLIENTES_CSV
+from banco_agil.tools.auth_tools import _normalizar_cpf
 
 
 def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
-    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF."""
+    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF.
+
+    Compara CPFs normalizados (só dígitos) — ver credit_tools.py para o
+    contexto do bug de comparação exata de string que isso corrige.
+    """
     session_state = getattr(team, "session_state", None) if team is not None else None
     if not session_state or "autenticado" not in session_state:
         return None  # Fora de contexto de team (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
         return {"sucesso": False, "mensagem": "Operação não autorizada: autenticação necessária."}
-    cpf_autenticado = session_state.get("cpf", "")
-    if cpf_autenticado and cpf_autenticado != cpf:
+    cpf_autenticado = _normalizar_cpf(session_state.get("cpf", ""))
+    if cpf_autenticado and cpf_autenticado != _normalizar_cpf(cpf):
         return {"sucesso": False, "mensagem": "Operação não autorizada: acesso negado."}
     return None
 
