@@ -196,15 +196,39 @@ async def _extrair_texto_da_mensagem(message: dict, message_type: str, phone_num
     return None
 
 
+def _estrutura_diagnostico(v, profundidade: int = 4):
+    """Log helper: revela chaves/tipos (nunca valores) de um payload — usado
+    para descobrir o formato real de campos de mídia da Kapso sem expor
+    conteúdo de mensagens/telefones. Ver também app/routers/kapso_webhook.py."""
+    if profundidade <= 0:
+        return type(v).__name__
+    if isinstance(v, dict):
+        return {k: _estrutura_diagnostico(v[k], profundidade - 1) for k in v}
+    if isinstance(v, list):
+        return [f"list[{len(v)}]"] + ([_estrutura_diagnostico(v[0], profundidade - 1)] if v else [])
+    return type(v).__name__
+
+
+def _media_url_do_kapso(kapso_meta: dict) -> str | None:
+    """Extrai a URL de mídia do bloco message.kapso. O formato real
+    confirmado (via diagnóstico) tem 'content' em vez de 'media_url' —
+    aceita ambos defensivamente até confirmarmos o formato para cada tipo
+    de mídia (áudio/imagem/sticker)."""
+    candidato = kapso_meta.get("media_url") or kapso_meta.get("content")
+    if isinstance(candidato, str) and candidato.startswith("http"):
+        return candidato
+    return None
+
+
 def _processar_audio(message: dict, phone_number_id: str) -> str:
     kapso_meta = message.get("kapso") or {}
+    audio_info = message.get("audio") or {}
 
     # Transcrição própria via DeepInfra tem prioridade (controle de
     # qualidade/modelo, conforme requisito do projeto); cai para o
     # transcript nativo da Kapso se o download ou a transcrição falharem.
-    audio_info = message.get("audio") or {}
     baixado = kapso_client.baixar_midia(
-        media_url_do_webhook=kapso_meta.get("media_url"),
+        media_url_do_webhook=_media_url_do_kapso(kapso_meta),
         media_id=audio_info.get("id") or kapso_meta.get("media_id"),
         phone_number_id=phone_number_id,
     )
@@ -219,6 +243,10 @@ def _processar_audio(message: dict, phone_number_id: str) -> str:
         logger.info("Usando transcript nativo da Kapso como fallback (DeepInfra falhou ou indisponível).")
         return str(transcript_nativo)
 
+    logger.warning(
+        "Falha ao obter áudio (download e transcript nativo indisponíveis) — estrutura de message: %s",
+        _estrutura_diagnostico(message),
+    )
     return ""
 
 
@@ -228,11 +256,15 @@ def _processar_imagem(message: dict, message_type: str, phone_number_id: str) ->
     legenda = imagem_info.get("caption")
 
     baixado = kapso_client.baixar_midia(
-        media_url_do_webhook=kapso_meta.get("media_url"),
+        media_url_do_webhook=_media_url_do_kapso(kapso_meta),
         media_id=imagem_info.get("id") or kapso_meta.get("media_id"),
         phone_number_id=phone_number_id,
     )
     if not baixado:
+        logger.warning(
+            "Falha ao obter imagem/sticker — estrutura de message: %s",
+            _estrutura_diagnostico(message),
+        )
         return ""
 
     image_bytes, mime_type = baixado

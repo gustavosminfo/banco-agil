@@ -43,34 +43,17 @@ async def receber_webhook_kapso(request: Request, background_tasks: BackgroundTa
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="payload inválido")
 
-    if payload.get("event") != "whatsapp.message.received":
-        # Diagnóstico temporário: o formato exato do payload da Kapso ainda
-        # está sendo validado (item de spike do plano) — logar só a
-        # ESTRUTURA (chaves/tipos, nunca valores como texto de mensagem ou
-        # telefone) ajuda a confirmar o formato real sem expor PII.
-        def _estrutura(v, profundidade=5):
-            if profundidade <= 0:
-                return type(v).__name__
-            if isinstance(v, dict):
-                return {k: _estrutura(v[k], profundidade - 1) for k in v}
-            if isinstance(v, list):
-                return [f"list[{len(v)}]"] + ([_estrutura(v[0], profundidade - 1)] if v else [])
-            return type(v).__name__
-
-        logger.warning(
-            "Webhook Kapso ignorado — payload.get('type')=%r, estrutura=%s",
-            payload.get("type"),
-            _estrutura(payload),
-        )
+    if payload.get("type") != "whatsapp.message.received":
+        logger.info("Webhook Kapso ignorado — payload.get('type')=%r (evento não tratado).", payload.get("type"))
         return {"status": "ignorado"}
 
-    logger.info(
-        "Webhook Kapso aceito — message.type=%r, chaves de message=%s",
-        (payload.get("message") or {}).get("type"),
-        list((payload.get("message") or {}).keys()),
-    )
+    # A Kapso agrupa mensagens em lote: os itens reais (cada um com
+    # message/conversation/phone_number_id) ficam em payload["data"], não no
+    # topo do payload. Cada item vira uma BackgroundTask independente.
+    itens = payload.get("data") or []
+    for item in itens:
+        message_type = (item.get("message") or {}).get("type")
+        logger.info("Webhook Kapso aceito — message.type=%r", message_type)
+        background_tasks.add_task(kapso_processing.processar_mensagem, item)
 
-    # Ack imediato — processamento real roda em background (evita timeout
-    # de webhook e retry agressivo do lado da Kapso).
-    background_tasks.add_task(kapso_processing.processar_mensagem, payload)
-    return {"status": "recebido"}
+    return {"status": "recebido", "processados": len(itens)}
