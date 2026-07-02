@@ -6,23 +6,28 @@ Calcula o novo score com a fórmula ponderada do desafio e atualiza clientes.csv
 
 import logging
 from typing import Literal, Optional
-import pandas as pd
+
+from agno.run import RunContext
+
 from banco_agil.config import CLIENTES_CSV
 from banco_agil.csv_lock import lock_para
 from banco_agil.tools.auth_tools import _mascarar_cpf, _normalizar_cpf
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
-    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF.
+def _verificar_autorizacao(run_context: Optional[RunContext], cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se a sessão atual não está autenticada como esse CPF.
 
-    Compara CPFs normalizados (só dígitos) — ver credit_tools.py para o
-    contexto do bug de comparação exata de string que isso corrige.
+    Usa `run_context` (não `team`) — ver credit_tools.py para o contexto do
+    bug real: team.session_state é o dict padrão do construtor, nunca
+    reflete mutações; só run_context.session_state reflete o estado
+    realmente persistido. Compara CPFs normalizados (só dígitos).
     """
-    session_state = getattr(team, "session_state", None) if team is not None else None
+    session_state = getattr(run_context, "session_state", None) if run_context is not None else None
     if not session_state or "autenticado" not in session_state:
-        return None  # Fora de contexto de team (ex.: testes locais) — permite
+        return None  # Fora de contexto de sessão (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
         logger.warning("atualizar_score_cliente bloqueado: sessão não autenticada (cpf=%s).", _mascarar_cpf(cpf))
         return {"sucesso": False, "mensagem": "Operação não autorizada: autenticação necessária."}
@@ -133,19 +138,20 @@ def calcular_score_credito(
     }
 
 
-def atualizar_score_cliente(cpf: str, novo_score: int, team=None) -> dict:
+def atualizar_score_cliente(cpf: str, novo_score: int, run_context: Optional[RunContext] = None) -> dict:
     """
     Persiste o novo score do cliente em clientes.csv.
 
     Args:
         cpf:        CPF do cliente (apenas dígitos).
         novo_score: Score recalculado (0-1000).
-        team:       Injetado pelo Agno — Team coordenador com session_state de autenticação.
+        run_context: Injetado pelo Agno — dá acesso ao session_state real da
+            sessão em execução (ver _verificar_autorizacao).
 
     Returns:
         dict com {sucesso, score_anterior, score_novo, mensagem}.
     """
-    erro_auth = _verificar_autorizacao(team, cpf)
+    erro_auth = _verificar_autorizacao(run_context, cpf)
     if erro_auth:
         return erro_auth
 

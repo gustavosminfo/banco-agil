@@ -7,7 +7,10 @@ Consulta limite, processa solicitação de aumento e verifica elegibilidade via 
 import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional, Union
+
 import pandas as pd
+from agno.run import RunContext
+
 from banco_agil.config import CLIENTES_CSV, SCORE_LIMITE_CSV, SOLICITACOES_CSV
 from banco_agil.csv_lock import lock_para
 from banco_agil.tools.auth_tools import _mascarar_cpf, _normalizar_cpf
@@ -15,23 +18,28 @@ from banco_agil.tools.auth_tools import _mascarar_cpf, _normalizar_cpf
 logger = logging.getLogger(__name__)
 
 
-def _verificar_autorizacao(team, cpf: str) -> Optional[dict]:
-    """Retorna um dict de erro se o Team coordenador não está autenticado como esse CPF.
+def _verificar_autorizacao(run_context: Optional[RunContext], cpf: str) -> Optional[dict]:
+    """Retorna um dict de erro se a sessão atual não está autenticada como esse CPF.
 
-    Usa o parâmetro `team` (injetado pelo Agno como o Team coordenador) porque
-    é nele que o session_state com `autenticado` e `cpf` é mantido. O parâmetro
-    `agent` seria o membro (Agente de Crédito) cujo session_state não tem esses
-    campos — usar `agent` bloqueava toda chamada legítima.
+    Usa `run_context` (injetado pelo Agno), não `team` — `team.session_state`
+    é o dict PADRÃO passado no construtor de Team em criar_equipe(), congelado
+    no valor inicial; NUNCA reflete mutações feitas durante o run. Só
+    `run_context.session_state` reflete o estado realmente carregado/persistido
+    para a sessão em execução (confirmado via teste isolado: team.get_session_state()
+    mostrava autenticado=True corretamente persistido, mas team.session_state
+    permanecia autenticado=False o tempo todo — bug real, não teórico,
+    responsável pelo bloqueio incorreto observado em produção mesmo após o
+    cliente já ter autenticado com sucesso na mesma sessão).
 
     Compara CPFs normalizados (só dígitos): a cadeia de delegação
     coordenador → agente → tool call passa por texto livre do LLM, que pode
     reformatar o CPF (com ou sem pontuação) mesmo vindo do mesmo
     session_state — comparação exata de string bloqueava operações
-    legítimas (bug observado em produção no canal WhatsApp).
+    legítimas.
     """
-    session_state = getattr(team, "session_state", None) if team is not None else None
+    session_state = getattr(run_context, "session_state", None) if run_context is not None else None
     if not session_state or "autenticado" not in session_state:
-        return None  # Fora de contexto de team (ex.: testes locais) — permite
+        return None  # Fora de contexto de sessão (ex.: testes locais) — permite
     if not session_state.get("autenticado"):
         logger.warning("solicitar_aumento_limite bloqueado: sessão não autenticada (cpf=%s).", _mascarar_cpf(cpf))
         return {"status": "erro", "mensagem": "Operação não autorizada: autenticação necessária."}
@@ -108,7 +116,7 @@ def verificar_limite_pelo_score(score: int, novo_limite: float) -> dict:
 
 # ── Processamento de solicitação ──────────────────────────────────────────────
 
-def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
+def solicitar_aumento_limite(cpf: str, novo_limite: float, run_context: Optional[RunContext] = None) -> dict:
     """
     Cria um registro de solicitação de aumento de limite e aprova/rejeita
     com base no score atual do cliente.
@@ -119,12 +127,14 @@ def solicitar_aumento_limite(cpf: str, novo_limite: float, team=None) -> dict:
     Args:
         cpf: CPF do cliente (apenas dígitos).
         novo_limite: Novo limite desejado em R$.
-        team: Injetado pelo Agno — Team coordenador com session_state de autenticação.
+        run_context: Injetado pelo Agno — dá acesso ao session_state real da
+            sessão em execução (ver _verificar_autorizacao para o motivo de
+            usar run_context em vez de team).
 
     Returns:
         dict com {status, limite_atual, novo_limite_solicitado, limite_maximo_permitido, mensagem}.
     """
-    erro_auth = _verificar_autorizacao(team, cpf)
+    erro_auth = _verificar_autorizacao(run_context, cpf)
     if erro_auth:
         return erro_auth
 
