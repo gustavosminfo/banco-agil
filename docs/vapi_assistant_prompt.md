@@ -9,18 +9,43 @@ Ver `banco_agil/channels/vapi_processing.py` para o dispatcher que recebe
 essas tool-calls, e o plano em `C:\Users\gdmacedo\.claude\plans\memoized-imagining-trinket.md`
 para o contexto arquitetural completo.
 
-## Configuração do Assistant
+## Configuração do Assistant (estado atual em produção)
 
-- **Model**: Custom LLM apontando para o endpoint OpenAI-compatible da
-  DeepInfra (mesmo `COORDINATOR_MODEL_ID` de `banco_agil/config.py`, hoje
-  `zai-org/GLM-5.2`) — ver item de spike sobre disponibilidade desse model id
-  no provider nativo "DeepInfra" da VAPI antes de decidir entre as duas
-  opções.
-- **Transcriber**: pt-BR (validar Deepgram multi vs. alternativas — spike).
-- **Voice**: pt-BR (validar ElevenLabs/Azure — spike).
-- **serverUrl**: `https://<host-atual-do-railway>/webhooks/vapi/tools`
-- **Server auth**: header `X-Vapi-Secret` = valor de `VAPI_SERVER_SECRET`.
+Assistant id: `c0f58a77-1205-4754-859a-61702eecc7da`.
+
+- **Model**: provider nativo `deepinfra` da VAPI, model `deepseek-ai/DeepSeek-V3-0324`
+  (não `zai-org/GLM-5.2`, usado no coordenador Streamlit/WhatsApp). GLM-5.2
+  foi testado primeiro e causava `pipeline-error-deepinfra-llm-failed` em
+  ligações reais: é um modelo de raciocínio que emite um longo trecho de
+  `reasoning_content` em streaming (70+ chunks observados) antes do
+  primeiro chunk de `content` real — a VAPI, com timeout de primeiro-token
+  apertado (natural em voz), aborta a chamada antes da resposta chegar.
+  Confirmado via teste direto contra a API da DeepInfra reproduzindo a
+  mesma conversa (mesmo prompt/tools) que falhou em produção: com GLM-5.2,
+  77 chunks de só `reasoning_content` antes do primeiro `content`; com
+  DeepSeek-V3-0324, resposta direta, sem `reasoning_content`. A API da
+  DeepInfra aceita `reasoning_effort: "none"` para suprimir esse
+  comportamento no GLM-5.2, mas não há confirmação de que a VAPI repassa
+  esse parâmetro extra ao provider nativo — não testado.
+  Requer uma **Provider Key da DeepInfra cadastrada manualmente** no
+  dashboard da VAPI (Settings → Provider Keys/Integrations) — o agente não
+  pode cadastrá-la via API (bloqueio de segurança do Claude Code contra
+  envio de segredos a credential stores de terceiros).
+- **Transcriber**: Deepgram `nova-2`, `language: "pt"`.
+- **Voice**: ElevenLabs (`11labs`), voiceId `21m00Tcm4TlvDq8ikWAM` (Rachel),
+  model `eleven_turbo_v2_5` (multilingual, baixa latência). Trocado da voz
+  Azure `pt-BR-FranciscaNeural` original a pedido do usuário.
+- **serverUrl**: `https://banco-agil-production.up.railway.app/webhooks/vapi/tools`
+- **Server auth**: header `X-Vapi-Secret` = valor de `VAPI_SERVER_SECRET`
+  (configurado nas env vars do serviço `banco-agil` na Railway).
 - **Tools nativas habilitadas**: `dtmf`, `endCall`.
+
+**Atenção ao editar via `PATCH /assistant/{id}`**: a VAPI substitui o objeto
+`model` inteiro, não faz merge parcial — um PATCH enviando só
+`{"model": {"provider": ..., "model": ...}}` apaga `messages` (prompt),
+`toolIds` e `tools` (dtmf/endCall) que não forem reenviados no mesmo
+payload. Sempre reenviar o objeto `model` completo (prompt + toolIds +
+tools + provider/model) em qualquer PATCH.
 - **firstMessage**: "Olá! Você está falando com o Banco Ágil. Para começar,
   preciso confirmar sua identidade — poderia digitar seu CPF no teclado do
   telefone?"
