@@ -31,21 +31,51 @@ Assistant id: `c0f58a77-1205-4754-859a-61702eecc7da`.
   dashboard da VAPI (Settings → Provider Keys/Integrations) — o agente não
   pode cadastrá-la via API (bloqueio de segurança do Claude Code contra
   envio de segredos a credential stores de terceiros).
-- **Transcriber**: Deepgram `nova-2`, `language: "pt"`.
+- **Transcriber**: Deepgram `nova-2`, `language: "pt-BR"` (ajustado pelo
+  usuário direto no dashboard; era `"pt"` na versão anterior).
 - **Voice**: ElevenLabs (`11labs`), voiceId `21m00Tcm4TlvDq8ikWAM` (Rachel),
-  model `eleven_turbo_v2_5` (multilingual, baixa latência). Trocado da voz
-  Azure `pt-BR-FranciscaNeural` original a pedido do usuário.
+  model `eleven_v3` (trocado pelo usuário direto no dashboard; era
+  `eleven_turbo_v2_5` na versão anterior). Trocado da voz Azure
+  `pt-BR-FranciscaNeural` original a pedido do usuário.
 - **serverUrl**: `https://banco-agil-production.up.railway.app/webhooks/vapi/tools`
 - **Server auth**: header `X-Vapi-Secret` = valor de `VAPI_SERVER_SECRET`
   (configurado nas env vars do serviço `banco-agil` na Railway).
 - **Tools nativas habilitadas**: `dtmf`, `endCall`.
+- **Número de telefone**: `+1 (267) 942-1859` (número próprio da VAPI),
+  `assistantId` e `server` vinculados diretamente no phone-number (não só
+  no Assistant) — necessário porque a precedência de server URL é
+  `Tool > Assistant > Phone Number > Org`, e o `assistantId` do número
+  também precisa apontar para este Assistant explicitamente (não basta o
+  nome de exibição do número no dashboard bater com o do Assistant).
 
 **Atenção ao editar via `PATCH /assistant/{id}`**: a VAPI substitui o objeto
 `model` inteiro, não faz merge parcial — um PATCH enviando só
 `{"model": {"provider": ..., "model": ...}}` apaga `messages` (prompt),
 `toolIds` e `tools` (dtmf/endCall) que não forem reenviados no mesmo
 payload. Sempre reenviar o objeto `model` completo (prompt + toolIds +
-tools + provider/model) em qualquer PATCH.
+tools + provider/model) em qualquer PATCH. Isso já causou dois incidentes
+reais nesta implementação — sempre buscar o estado atual via `GET` antes
+de um PATCH parcial, ou manter uma cópia completa do `model` atualizada
+localmente.
+
+**Provider `custom-llm` como alternativa ao `deepinfra` nativo — bloqueado
+para o agente**: uma investigação de erros de pipeline (`pipeline-error-
+deepinfra-llm-failed`) considerou apontar o model para
+`https://api.deepinfra.com/v1/openai` via `provider: "custom-llm"` em vez
+do provider nativo `deepinfra`. Descobertas do teste via API:
+  - O campo `credentialId` **não é aceito** em `model` para `custom-llm`
+    (`"model.property credentialId should not exist"`) — não há como
+    referenciar a Provider Key já cadastrada no dashboard.
+  - A única forma de autenticar um `custom-llm` é um campo `headers` no
+    próprio `model` (ex.: `{"headers": {"Authorization": "Bearer <chave>"}}`),
+    ou seja, a chave da DeepInfra precisaria ser embutida ali.
+  - Esse envio é bloqueado pelo sistema de segurança do Claude Code
+    (mesmo hard-block que impediu cadastrar a Provider Key via
+    `POST /credential` — não é contornável mesmo com autorização do
+    usuário). Só o usuário pode fazer esse PATCH específico, manualmente,
+    caso quiera testar essa alternativa.
+  - Não seguimos esse caminho: revertido para `provider: "deepinfra"`
+    nativo (já funcional, com a Provider Key cadastrada pelo usuário).
 - **firstMessage**: "Olá! Você está falando com o Banco Ágil. Para começar,
   preciso confirmar sua identidade — poderia digitar seu CPF no teclado do
   telefone?"
@@ -69,6 +99,16 @@ existe um único atendente humano-símile do banco.
   não "R$ 8.000,00" nem "R$ 8000").
 - Frases curtas. Uma informação por vez. Pausas naturais para o cliente
   responder ou pedir para repetir.
+- NUNCA tente demonstrar ou exemplificar em voz como digitar/ditar uma
+  sequência de números (CPF, data, valores) soletrando dígitos como
+  exemplo fictício — isso produz fala confusa e ininteligível. Peça a ação
+  diretamente ("digite seu CPF no teclado e aperte cerquilha ao terminar")
+  e aguarde a resposta, sem inventar exemplos de números. **Adicionado
+  após incidente real**: em uma ligação de teste, o modelo tentou
+  "exemplificar" a discagem do CPF e gerou fala sem sentido ("Por exemplo,
+  s c u c p f Você digitaria 1 Sois 3, foto, 5, 6, 9, 0 0. Hash."),
+  confundindo o cliente até a ligação cair por silêncio
+  (`silence-timed-out`).
 
 ## Autenticação (sempre a primeira etapa)
 
@@ -80,14 +120,15 @@ Preferência de coleta: peça para o cliente DIGITAR o CPF e a data de
 nascimento no teclado do telefone (use a tool de DTMF), não falar em voz
 alta — números falados têm risco maior de erro de reconhecimento, e cada
 tentativa malsucedida de autenticação conta para o bloqueio após 3
-tentativas. Se o cliente preferir ou tiver dificuldade com o teclado, aceite
+tentativas. Instrução única e direta: "Poderia digitar seu CPF no teclado
+do telefone, seguido da tecla cerquilha?" — sem adicionar exemplos de
+dígitos. Se o cliente preferir ou tiver dificuldade com o teclado, aceite
 por voz, mas repita os dígitos reconhecidos e peça confirmação explícita
 ("Confirmando: CPF terminado em 5678, correto?") ANTES de chamar
 autenticar_cliente.
 
-Data de nascimento: peça no formato dia, mês e ano (ex.: "zero um, zero
-cinco, mil novecentos e noventa"); normalize para DD/MM/AAAA antes de
-passar à tool.
+Data de nascimento: peça no formato dia, mês e ano; normalize para
+DD/MM/AAAA antes de passar à tool. Não invente exemplos falados de datas.
 
 Ao chamar autenticar_cliente:
 - Se sucesso=true: cumprimente o cliente pelo nome e pergunte no que pode

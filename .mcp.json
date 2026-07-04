@@ -3,6 +3,10 @@
     "agno-docs": {
       "type": "http",
       "url": "https://docs.agno.com/mcp"
+    },
+    "vapi-docs": {
+      "type": "http",
+      "url": "https://docs.vapi.ai/_mcp/server"
     }
   }
 }
