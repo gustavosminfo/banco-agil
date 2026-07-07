@@ -19,6 +19,20 @@ original (seção "Rollback", ao final) permanece intacto como plano de reversã
 |---|---|
 | Squad "Banco Agil - Ligacao (Squad)" | `dc57191e-9865-437a-a984-883f7656405f` |
 | Número `+1 (267) 942-1859` | `3590d25f-16ae-4365-8383-1b920dfa01a6` (aponta para o `squadId`) |
+| Assistant Recepcao (entry) | `195d9849-f90a-4aad-9c5a-4d74fd32edd3` |
+| Assistant Credito | `f005408b-c110-41f5-a907-e6f636d53004` |
+| Assistant Entrevista | `05817408-925c-45ac-90d2-69f474f7ada1` |
+| Assistant Cambio | `c312316a-c8ed-4a9b-bc64-c33f6566c8d9` |
+
+**Nota de implementação**: os 4 membros foram criados como **assistants salvos**
+(`POST /assistant` com `assistantId` próprio), referenciados no squad via
+`members[].assistantId` — não como definições inline (`assistant: {...}`)
+dentro do squad. A primeira versão usava membros inline (transientes, sem
+`id` próprio); embora funcionalmente idênticos via API, o dashboard da VAPI
+exibia esses membros como "assistants deletados" (o card de assistant na UI do
+squad parece esperar sempre um `assistantId` resolvível na lista de assistants
+salvos). Reconstruído com assistants salvos para eliminar essa ambiguidade —
+cada membro agora aparece normalmente em `GET /assistant` e no dashboard.
 
 - **Model** (todos os membros): provider nativo `deepinfra`, `deepseek-ai/DeepSeek-V3-0324`,
   temperatura 0.3, maxTokens 700. (Não usar GLM-5.2 no canal de voz — emite
