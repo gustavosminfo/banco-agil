@@ -1,17 +1,103 @@
-# Assistant de Ligação — VAPI.AI (Banco Ágil)
+# Canal de Ligação — VAPI.AI (Banco Ágil)
 
-Fonte de verdade versionada do prompt e dos schemas de tool usados para
-configurar o Assistant na VAPI (dashboard, API `POST /assistant` ou CLI
-`vapi assistant create`). Este arquivo não é executado pelo servidor — é
-texto de configuração para o objeto criado do lado da VAPI.
-
-Ver `banco_agil/channels/vapi_processing.py` para o dispatcher que recebe
-essas tool-calls, e o plano em `C:\Users\gdmacedo\.claude\plans\memoized-imagining-trinket.md`
+Fonte de verdade versionada da configuração do canal de voz na VAPI. Este
+arquivo não é executado pelo servidor — documenta os objetos criados do lado
+da VAPI (via API). Ver `banco_agil/channels/vapi_processing.py` para o
+dispatcher que recebe as tool-calls e `.../plans/memoized-imagining-trinket.md`
 para o contexto arquitetural completo.
 
-## Configuração do Assistant (estado atual em produção)
+**Em produção o atendimento é um Squad** (4 assistants especializados com
+handoffs invisíveis), construído a partir das lições do VAPI Playbook Strategy
+e reaproveitando o Agente Agno como base conceitual. O Assistant único
+original (seção "Rollback", ao final) permanece intacto como plano de reversão.
 
-Assistant id: `c0f58a77-1205-4754-859a-61702eecc7da`.
+---
+
+## Squad de produção
+
+| Objeto | ID |
+|---|---|
+| Squad "Banco Agil - Ligacao (Squad)" | `dc57191e-9865-437a-a984-883f7656405f` |
+| Número `+1 (267) 942-1859` | `3590d25f-16ae-4365-8383-1b920dfa01a6` (aponta para o `squadId`) |
+
+- **Model** (todos os membros): provider nativo `deepinfra`, `deepseek-ai/DeepSeek-V3-0324`,
+  temperatura 0.3, maxTokens 700. (Não usar GLM-5.2 no canal de voz — emite
+  preâmbulo de `reasoning_content` que estoura o timeout de primeiro-token.)
+  Requer a Provider Key da DeepInfra cadastrada no dashboard da VAPI.
+- **Voice** (todos): ElevenLabs, voiceId `21m00Tcm4TlvDq8ikWAM`, model `eleven_v3`.
+- **Transcriber** (todos): Deepgram `nova-2`, `pt-BR`, confidenceThreshold 0.4.
+- **serverUrl / auth** (todos): `https://banco-agil-production.up.railway.app/webhooks/vapi/tools`,
+  header `X-Vapi-Secret` = `VAPI_SERVER_SECRET`.
+
+### Membros e papéis
+
+O **primeiro membro (Recepção) inicia a chamada**. Os demais entram por handoff.
+
+1. **Recepcao** (entry) — saúda, autentica CPF+data de nascimento (DTMF-first via
+   tool nativa `dtmf`), roteia. Portão de segurança: operações de conta só após
+   `autenticar_cliente` retornar sucesso. Tools: `autenticar_cliente`,
+   `buscar_dados_cliente`, `encerrar_atendimento`, `dtmf`, `endCall`.
+2. **Credito** — consulta de limite e pedido de aumento; se rejeitado por score,
+   oferece entrevista. Tools: `consultar_limite_credito`,
+   `verificar_limite_pelo_score`, `solicitar_aumento_limite`, `encerrar_atendimento`, `endCall`.
+3. **Entrevista** — coleta renda/emprego/despesas/dependentes/dívidas, recalcula e
+   persiste o score, volta ao Crédito. Tools: `calcular_score_credito`,
+   `atualizar_score_cliente`, `encerrar_atendimento`, `endCall`.
+4. **Cambio** — cotações (não exige autenticação). Tools: `consultar_cotacao`,
+   `listar_moedas_suportadas`, `encerrar_atendimento`, `endCall`.
+
+### Mapa de handoffs (silenciosos)
+
+Cada handoff é uma tool separada por destino (roteamento mais confiável),
+`messages: []` (silencioso), `contextEngineeringPlan.type: "userAndAssistantMessages"`.
+Destinos por `assistantName`, membros de destino com `firstMessage: ""` +
+`firstMessageMode: "assistant-speaks-first-with-model-generated-message"`.
+
+- Recepcao → Credito, Cambio
+- Credito → Entrevista, Cambio, Recepcao
+- Entrevista → Credito
+- Cambio → Recepcao, Credito
+
+### Segurança da autenticação através dos handoffs (crítico)
+
+O `session_state` (autenticado, cpf, score, limite, tentativas_auth) é
+persistido por `banco_agil/channels/vapi_session.py` **indexado por `call.id`**,
+que **permanece constante através de todos os handoffs do squad**. Logo, a
+autenticação feita pela Recepção é lida (e reverificada no servidor via
+`_verificar_autorizacao`) quando o Crédito executa uma tool de conta — a
+autorização **nunca é confiada ao handoff**, sempre ao estado no Postgres.
+Validado: `autenticar_cliente` na Recepção → `solicitar_aumento_limite` no
+Crédito (mesmo call.id) retorna aprovado; sem auth prévia num call.id novo,
+retorna "Operação não autorizada".
+
+### Mensagens de espera (latency masking — Playbook cap. 12)
+
+Cada tool de conta carrega `messages` que a VAPI fala automaticamente ao
+iniciar a chamada da tool (`request-start`) e, se demorar, uma segunda
+(`request-response-delayed`, ~5s). Atende ao requisito de informar o cliente
+durante a espera ("estou consultando seus dados, um momento..."). As falas
+estão nos próprios objetos de tool (fetch via `GET /tool/{id}`):
+
+| Tool | request-start (resumo) |
+|---|---|
+| autenticar_cliente | "Estou confirmando seus dados, um momento." |
+| consultar_limite_credito | "Deixa eu consultar seu limite atual. Um instante." |
+| verificar_limite_pelo_score | "Vou verificar a elegibilidade para esse valor." |
+| solicitar_aumento_limite | "Estou processando seu pedido de aumento agora." |
+| calcular_score_credito | "Deixa eu recalcular seu score com essas informações." |
+| atualizar_score_cliente | "Estou atualizando seu cadastro, um instante." |
+| consultar_cotacao | "Vou verificar a cotação para você agora." |
+
+`encerrar_atendimento` não tem mensagem de espera (é o fim). Reforço no prompt:
+a espera fala do *processo*, nunca do *resultado* (tool-first truth).
+
+---
+
+## Rollback — Assistant único original
+
+Assistant id: `c0f58a77-1205-4754-859a-61702eecc7da`. Mantido intacto como
+reversão: se o Squad apresentar problema, aponte o número de volta para este
+`assistantId` (PATCH do phone-number). Configuração de referência abaixo.
 
 - **Model**: provider nativo `deepinfra` da VAPI, model `deepseek-ai/DeepSeek-V3-0324`
   (não `zai-org/GLM-5.2`, usado no coordenador Streamlit/WhatsApp). GLM-5.2
