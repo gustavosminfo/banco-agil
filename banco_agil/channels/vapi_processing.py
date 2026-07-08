@@ -59,6 +59,34 @@ def _normalizar_args(args: dict) -> dict:
     return normalizados
 
 
+def _nome_e_argumentos(chamada: dict) -> tuple[str, dict]:
+    """Extrai nome e argumentos de um item de toolCallList, suportando os dois
+    formatos observados: plano ({id, name, arguments}) e o formato nativo da
+    OpenAI ({id, type: "function", function: {name, arguments}}), usado pela
+    VAPI quando o model provider é openai/gpt-4o — nesse caso `arguments`
+    também vem como STRING JSON, não como objeto. Sem esse tratamento, o
+    dispatcher lia nome vazio e toda tool-call falhava com "Tool desconhecida"
+    (bug real observado em produção: autenticar_cliente nunca era executada)."""
+    fn = chamada.get("function")
+    if fn:
+        nome = fn.get("name", "")
+        args_raw = fn.get("arguments", {})
+    else:
+        nome = chamada.get("name", "")
+        args_raw = chamada.get("arguments", {})
+
+    if isinstance(args_raw, str):
+        try:
+            args = json.loads(args_raw) if args_raw.strip() else {}
+        except json.JSONDecodeError:
+            logger.warning("arguments da tool-call não é JSON válido: %r", args_raw[:200])
+            args = {}
+    else:
+        args = args_raw or {}
+
+    return nome, args
+
+
 def _executar_tool(nome: str, args: dict, run_context: RunContext) -> dict:
     args = _normalizar_args(args)
 
@@ -98,8 +126,7 @@ async def processar_tool_calls(message: dict) -> list[dict]:
 
     for chamada in message.get("toolCallList", []):
         tool_call_id = chamada.get("id", "")
-        nome = chamada.get("name", "")
-        args = chamada.get("arguments") or {}
+        nome, args = _nome_e_argumentos(chamada)
         try:
             resultado = _executar_tool(nome, args, run_context)
         except Exception:
