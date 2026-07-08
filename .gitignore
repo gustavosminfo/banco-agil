@@ -11,4 +11,3 @@ __pycache__/
 .ruff_cache/
 .coverage
 *.egg-info/
-data/solicitacoes_aumento_limite.csv
