@@ -11,6 +11,42 @@ handoffs invisíveis), construído a partir das lições do VAPI Playbook Strate
 e reaproveitando o Agente Agno como base conceitual. O Assistant único
 original (seção "Rollback", ao final) permanece intacto como plano de reversão.
 
+## Bug real corrigido: formato de `toolCallList` (não é config da VAPI, é código)
+
+Todas as falhas de autenticação em ligações reais até 2026-07-08 (mesmo depois
+de corrigir handoffs, modelo e STT) tinham uma causa raiz nunca antes
+identificada: `banco_agil/channels/vapi_processing.py::processar_tool_calls`
+lia `chamada.get("name")` / `chamada.get("arguments")` no nível superior de
+cada item de `toolCallList` — um formato **plano** que nunca foi validado
+contra um payload real, só contra payloads que eu mesmo construí em testes de
+`curl` (testando a lógica de negócio, mas nunca essa camada de parsing).
+
+O formato real que a VAPI envia com o modelo OpenAI (`gpt-4o`), confirmado
+inspecionando `artifact.messages` (role `tool_calls`) de uma ligação real:
+
+```json
+{
+  "id": "call_Nunsia8vQSItthyG6TmNJ2by",
+  "type": "function",
+  "function": {
+    "name": "autenticar_cliente",
+    "arguments": "{\"cpf\": \"12345678901\", \"data_nascimento\": \"15/05/1990\"}"
+  }
+}
+```
+
+`name`/`arguments` aninhados em `function` (convenção nativa da OpenAI), e
+`arguments` como **string JSON**, não objeto. Sem esse tratamento, todo
+`nome` lido ficava vazio e toda tool-call falhava com
+`{"erro": "Tool desconhecida: "}` — o cliente confirmava CPF e data
+corretamente, o modelo chamava a tool certa com os argumentos certos, mas o
+nosso dispatcher nunca reconhecia a chamada.
+
+**Corrigido** em `_nome_e_argumentos()` (vapi_processing.py), que suporta os
+dois formatos (plano e aninhado) e faz `json.loads()` seguro quando
+`arguments` vem como string. Validado contra o payload real exato (não um
+payload inventado) antes e depois do fix.
+
 ---
 
 ## Squad de produção
