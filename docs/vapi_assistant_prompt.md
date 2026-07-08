@@ -164,6 +164,46 @@ O contexto da conversa é preservado porque, num squad, a chamada é contínua e
 os membros compartilham o mesmo histórico; a autenticação vem do `session_state`
 por `call.id` (não do handoff).
 
+### Aviso de silêncio antes de encerrar a ligação (`hooks`)
+
+Ligação de teste `019f4297-...` caiu com `endedReason: silence-timed-out`
+logo após a Recepção perguntar "Está correto?" sobre o CPF, sem que o usuário
+tivesse a impressão de ter ficado em silêncio. Investigação:
+- Handoff tools continuavam intactas (não era repetição do bug anterior).
+- A queda aconteceu **antes** de qualquer handoff — Recepção ainda ativa.
+- Baixei a faixa de áudio **só do cliente**
+  (`artifact.recording.mono.customerUrl`) e medi energia RMS por segundo:
+  fala clara nos dois trechos que batem com o transcript (saudação e CPF), e
+  **zero de energia (silêncio digital, não "fala não reconhecida") do
+  segundo 46 até o fim (73s)**. Isso descarta bug de STT/parsing nesta
+  ligação — o canal do cliente genuinamente não captou nada por ~27s.
+
+Independente da causa exata (silêncio real ou um problema pontual de
+áudio/rede do lado do cliente), identifiquei uma lacuna real: **não havia
+nenhum aviso ao cliente antes do encerramento por silêncio** — o
+`silenceTimeoutSeconds` default da VAPI simplesmente derruba a ligação sem
+avisar. Corrigido com `hooks` (`docs.vapi.ai/assistants/idle-messages`) em
+3 estágios, presente nos 4 membros:
+
+```json
+"hooks": [
+  { "on": "customer.speech.timeout",
+    "options": { "timeoutSeconds": 10, "triggerMaxCount": 3, "triggerResetMode": "onUserSpeech" },
+    "do": [ { "type": "say", "exact": "Você ainda está aí? Pode continuar, estou ouvindo." } ] },
+  { "on": "customer.speech.timeout",
+    "options": { "timeoutSeconds": 20, "triggerMaxCount": 3, "triggerResetMode": "onUserSpeech" },
+    "do": [ { "type": "say", "exact": "Ainda não consegui ouvir você. Pode falar quando estiver pronto." } ] },
+  { "on": "customer.speech.timeout",
+    "options": { "timeoutSeconds": 30, "triggerMaxCount": 3, "triggerResetMode": "onUserSpeech" },
+    "do": [ { "type": "say", "exact": "Não estou conseguindo ouvir você, vou encerrar por aqui. Pode ligar novamente quando quiser. Até logo!" },
+             { "type": "tool", "tool": { "type": "endCall" } } ] }
+]
+```
+
+`triggerResetMode: "onUserSpeech"` reinicia a contagem assim que o cliente
+volta a falar. Não evita uma queda por silêncio genuíno, mas troca um
+encerramento abrupto e silencioso por dois avisos + despedida graciosa.
+
 ### Segurança da autenticação através dos handoffs (crítico)
 
 O `session_state` (autenticado, cpf, score, limite, tentativas_auth) é
