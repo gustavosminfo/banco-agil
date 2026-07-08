@@ -80,7 +80,12 @@ cada membro agora aparece normalmente em `GET /assistant` e no dashboard.
   confiável. (GLM-5.2 tinha um problema adicional: preâmbulo de
   `reasoning_content` que estourava o timeout de primeiro-token.)
 - **Voice** (todos): ElevenLabs, voiceId `21m00Tcm4TlvDq8ikWAM`, model `eleven_v3`.
-- **Transcriber** (todos): Deepgram `nova-2`, `pt-BR`, confidenceThreshold 0.4.
+- **Transcriber** (todos): **AssemblyAI** (`assembly-ai`, `language: multi`,
+  `speechModel: universal-streaming-multilingual`, `languageDetection: true`,
+  `confidenceThreshold: 0.4`) — trocado pelo usuário do Deepgram `nova-2` após
+  o STT dígito-a-dígito do CPF falhar repetidamente (o modelo chegava a
+  truncar/inventar dígitos ao confirmar). Com AssemblyAI o CPF passou a ser
+  reconhecido corretamente.
 - **serverUrl / auth** (todos): `https://banco-agil-production.up.railway.app/webhooks/vapi/tools`,
   header `X-Vapi-Secret` = `VAPI_SERVER_SECRET`.
 
@@ -106,33 +111,50 @@ O **primeiro membro (Recepção) inicia a chamada**. Os demais entram por handof
 4. **Cambio** — cotações (não exige autenticação). Tools: `consultar_cotacao`,
    `listar_moedas_suportadas`, `encerrar_atendimento`, `endCall`.
 
-### Mapa de handoffs — via `assistantDestinations` (linhas no dashboard)
+### Mapa de handoffs — via handoff tools explícitas (decisão final)
 
 A VAPI tem **dois mecanismos de handoff em squad** (docs.vapi.ai/squads/handoff):
-1. **`assistantDestinations`** em cada `members[]` do squad — é o que o
-   **dashboard desenha como linhas de conexão** entre os assistentes (roteamento
-   squad-nativo).
-2. **Handoff tools** (`type: "handoff"` no `assistant.model.tools[]`) — mecanismo
-   mais novo/rico (contextEngineeringPlan, variableExtraction), **funciona em
-   runtime mas o dashboard NÃO desenha linhas** para ele.
+1. **`assistantDestinations`** em cada `members[]` do squad — desenha linhas de
+   conexão no dashboard (roteamento squad-nativo), mas **vive no objeto do
+   squad**.
+2. **Handoff tools** (`type: "handoff"` no `assistant.model.tools[]`) — vive no
+   próprio assistant; não aparece como linha no dashboard, mas é mais robusto
+   e rico (contextEngineeringPlan, variableExtraction).
 
-Usamos o mecanismo **(1) `assistantDestinations`** — assim o dashboard mostra as
-conexões (a ausência delas foi o sintoma reportado) e é o roteamento nativo do
-squad. As handoff tools da tentativa anterior foram **removidas** dos assistants
-(`model.tools` = só `endCall`) para não haver dois mecanismos concorrentes.
-Handoff silencioso: cada destino com `message: ""` + membros de destino com
-`firstMessage: ""` e `firstMessageMode:
-"assistant-speaks-first-with-model-generated-message"`.
+**Histórico**: usamos primeiro `assistantDestinations` (para ter as linhas no
+dashboard). Depois de o usuário editar os 4 assistants no dashboard (troca do
+transcriber para AssemblyAI), o `assistantDestinations` do squad **apareceu
+vazio** — hipótese: salvar um assistant membro de um squad pela UI reseta esse
+campo squad-level, já que a UI não o suporta nativamente. Isso deixou o squad
+**sem nenhum roteamento configurado**: numa ligação real, a Recepção tentou
+transferir sem destino válido, a chamada travou até estourar
+`silence-timed-out` (motivo genérico, não refletindo a causa real), e o prompt
+— que ainda citava o nome de uma tool de handoff antiga — levou o modelo a
+narrar a transferência em vez de executá-la (violação da regra de
+transferência invisível).
+
+**Decisão final**: voltamos para **(2) handoff tools explícitas**, por viverem
+no assistant (não são afetadas por edições de outros assistants/squad via
+dashboard). Trade-off aceito: sem linhas visuais no dashboard. `messages: []`
+mantém o handoff silencioso; membros de destino com `firstMessage: ""` e
+`firstMessageMode: "assistant-speaks-first-with-model-generated-message"`.
+O prompt de cada membro ganhou uma seção "Transferência entre setores" com
+frases explicitamente proibidas ("vou te transferir", "um momento vou passar
+você", etc.) — reforço direto contra a violação observada.
 
 ```json
-// em members[] do squad:
-{ "assistantId": "<uuid>",
-  "assistantDestinations": [
-    { "type": "assistant", "assistantName": "Credito",
-      "description": "<gatilho>", "message": "" } ] }
+// em model.tools[] do assistant de origem:
+{ "type": "handoff",
+  "function": { "name": "transferir_para_credito", "description": "<gatilho>",
+    "parameters": { "type": "object",
+      "properties": { "destination": { "type": "string", "enum": ["<assistantId destino>"] } },
+      "required": ["destination"] } },
+  "destinations": [ { "type": "assistant", "assistantId": "<assistantId destino>",
+                      "contextEngineeringPlan": { "type": "all" } } ],
+  "messages": [] }
 ```
 
-Mapa (destinos por `assistantName`):
+Mapa:
 - Recepcao → Credito, Cambio
 - Credito → Entrevista, Cambio, Recepcao
 - Entrevista → Credito
