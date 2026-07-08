@@ -70,39 +70,41 @@ O **primeiro membro (Recepção) inicia a chamada**. Os demais entram por handof
 4. **Cambio** — cotações (não exige autenticação). Tools: `consultar_cotacao`,
    `listar_moedas_suportadas`, `encerrar_atendimento`, `endCall`.
 
-### Mapa de handoffs (silenciosos)
+### Mapa de handoffs — via `assistantDestinations` (linhas no dashboard)
 
-Cada handoff é uma tool separada por destino (roteamento mais confiável), em
-`model.tools[]` via API, na **forma canônica** do exemplo clinic da VAPI
-(docs.vapi.ai/squads/examples/clinic-triage-scheduling-handoff-tool):
+A VAPI tem **dois mecanismos de handoff em squad** (docs.vapi.ai/squads/handoff):
+1. **`assistantDestinations`** em cada `members[]` do squad — é o que o
+   **dashboard desenha como linhas de conexão** entre os assistentes (roteamento
+   squad-nativo).
+2. **Handoff tools** (`type: "handoff"` no `assistant.model.tools[]`) — mecanismo
+   mais novo/rico (contextEngineeringPlan, variableExtraction), **funciona em
+   runtime mas o dashboard NÃO desenha linhas** para ele.
 
-```json
-{ "type": "handoff",
-  "function": { "name": "transferir_para_credito",
-    "description": "<gatilho>",
-    "parameters": { "type": "object",
-      "properties": { "destination": { "type": "string", "enum": ["<assistantId destino>"] } },
-      "required": ["destination"] } },
-  "destinations": [ { "type": "assistant", "assistantId": "<assistantId destino>",
-                      "contextEngineeringPlan": { "type": "all" } } ],
-  "messages": [] }
-```
-
-**Correção importante**: a primeira versão tinha `function` só com `{"name"}`
-(sem `description` nem `parameters`) e destinos por `assistantName` — o dashboard
-mostrava "No handoff tools configured" (sem linhas de conexão) e uma function
-tool sem `parameters` é inválida para a API de tool-calling estilo OpenAI,
-contribuindo para o `pipeline-error`. A forma canônica acima (com
-`function.parameters.destination` enum = o UUID de destino e
-`destinations[].assistantId`) reconecta os membros no dashboard e torna o
-roteamento confiável. `messages: []` mantém o handoff silencioso; membros de
-destino com `firstMessage: ""` + `firstMessageMode:
+Usamos o mecanismo **(1) `assistantDestinations`** — assim o dashboard mostra as
+conexões (a ausência delas foi o sintoma reportado) e é o roteamento nativo do
+squad. As handoff tools da tentativa anterior foram **removidas** dos assistants
+(`model.tools` = só `endCall`) para não haver dois mecanismos concorrentes.
+Handoff silencioso: cada destino com `message: ""` + membros de destino com
+`firstMessage: ""` e `firstMessageMode:
 "assistant-speaks-first-with-model-generated-message"`.
 
+```json
+// em members[] do squad:
+{ "assistantId": "<uuid>",
+  "assistantDestinations": [
+    { "type": "assistant", "assistantName": "Credito",
+      "description": "<gatilho>", "message": "" } ] }
+```
+
+Mapa (destinos por `assistantName`):
 - Recepcao → Credito, Cambio
 - Credito → Entrevista, Cambio, Recepcao
 - Entrevista → Credito
 - Cambio → Recepcao, Credito
+
+O contexto da conversa é preservado porque, num squad, a chamada é contínua e
+os membros compartilham o mesmo histórico; a autenticação vem do `session_state`
+por `call.id` (não do handoff).
 
 ### Segurança da autenticação através dos handoffs (crítico)
 
