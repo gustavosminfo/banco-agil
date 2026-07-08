@@ -34,10 +34,15 @@ squad parece esperar sempre um `assistantId` resolvível na lista de assistants
 salvos). Reconstruído com assistants salvos para eliminar essa ambiguidade —
 cada membro agora aparece normalmente em `GET /assistant` e no dashboard.
 
-- **Model** (todos os membros): provider nativo `deepinfra`, `deepseek-ai/DeepSeek-V3-0324`,
-  temperatura 0.3, maxTokens 700. (Não usar GLM-5.2 no canal de voz — emite
-  preâmbulo de `reasoning_content` que estoura o timeout de primeiro-token.)
-  Requer a Provider Key da DeepInfra cadastrada no dashboard da VAPI.
+- **Model** (todos os membros): **OpenAI `gpt-4o`**, temperatura 0.3, maxTokens 700.
+  Trocado do provider nativo `deepinfra`/`DeepSeek-V3-0324` após ligações reais
+  falharem repetidamente com `pipeline-error-deepinfra-llm-failed` + gaps de
+  ~60-120s: o provider nativo `deepinfra` da VAPI se mostrou instável para voz
+  em tempo real (o erro apareceu no assistant único com GLM-5.2, no assistant
+  único com DeepSeek e no squad). gpt-4o é o provider de primeira classe usado
+  pelos exemplos oficiais da VAPI — baixa latência de primeiro-token e
+  confiável. (GLM-5.2 tinha um problema adicional: preâmbulo de
+  `reasoning_content` que estourava o timeout de primeiro-token.)
 - **Voice** (todos): ElevenLabs, voiceId `21m00Tcm4TlvDq8ikWAM`, model `eleven_v3`.
 - **Transcriber** (todos): Deepgram `nova-2`, `pt-BR`, confidenceThreshold 0.4.
 - **serverUrl / auth** (todos): `https://banco-agil-production.up.railway.app/webhooks/vapi/tools`,
@@ -47,10 +52,15 @@ cada membro agora aparece normalmente em `GET /assistant` e no dashboard.
 
 O **primeiro membro (Recepção) inicia a chamada**. Os demais entram por handoff.
 
-1. **Recepcao** (entry) — saúda, autentica CPF+data de nascimento (DTMF-first via
-   tool nativa `dtmf`), roteia. Portão de segurança: operações de conta só após
-   `autenticar_cliente` retornar sucesso. Tools: `autenticar_cliente`,
-   `buscar_dados_cliente`, `encerrar_atendimento`, `dtmf`, `endCall`.
+1. **Recepcao** (entry) — saúda, autentica CPF+data de nascimento **por voz**
+   (cliente FALA o CPF; o agente repete os 11 dígitos e confirma via spell-back
+   antes de chamar `autenticar_cliente`), roteia. Portão de segurança: operações
+   de conta só após `autenticar_cliente` retornar sucesso. Tools:
+   `autenticar_cliente`, `buscar_dados_cliente`, `encerrar_atendimento`, `endCall`.
+   (A tool nativa `dtmf` foi **removida** — numa ligação real os dígitos digitados
+   não chegavam ao modelo, que re-pedia o CPF; a coleta por voz + spell-back
+   evita isso. DTMF pode ser reintroduzido como fallback se o STT de 11 dígitos
+   em pt-BR se mostrar impreciso.)
 2. **Credito** — consulta de limite e pedido de aumento; se rejeitado por score,
    oferece entrevista. Tools: `consultar_limite_credito`,
    `verificar_limite_pelo_score`, `solicitar_aumento_limite`, `encerrar_atendimento`, `endCall`.
@@ -62,10 +72,32 @@ O **primeiro membro (Recepção) inicia a chamada**. Os demais entram por handof
 
 ### Mapa de handoffs (silenciosos)
 
-Cada handoff é uma tool separada por destino (roteamento mais confiável),
-`messages: []` (silencioso), `contextEngineeringPlan.type: "userAndAssistantMessages"`.
-Destinos por `assistantName`, membros de destino com `firstMessage: ""` +
-`firstMessageMode: "assistant-speaks-first-with-model-generated-message"`.
+Cada handoff é uma tool separada por destino (roteamento mais confiável), em
+`model.tools[]` via API, na **forma canônica** do exemplo clinic da VAPI
+(docs.vapi.ai/squads/examples/clinic-triage-scheduling-handoff-tool):
+
+```json
+{ "type": "handoff",
+  "function": { "name": "transferir_para_credito",
+    "description": "<gatilho>",
+    "parameters": { "type": "object",
+      "properties": { "destination": { "type": "string", "enum": ["<assistantId destino>"] } },
+      "required": ["destination"] } },
+  "destinations": [ { "type": "assistant", "assistantId": "<assistantId destino>",
+                      "contextEngineeringPlan": { "type": "all" } } ],
+  "messages": [] }
+```
+
+**Correção importante**: a primeira versão tinha `function` só com `{"name"}`
+(sem `description` nem `parameters`) e destinos por `assistantName` — o dashboard
+mostrava "No handoff tools configured" (sem linhas de conexão) e uma function
+tool sem `parameters` é inválida para a API de tool-calling estilo OpenAI,
+contribuindo para o `pipeline-error`. A forma canônica acima (com
+`function.parameters.destination` enum = o UUID de destino e
+`destinations[].assistantId`) reconecta os membros no dashboard e torna o
+roteamento confiável. `messages: []` mantém o handoff silencioso; membros de
+destino com `firstMessage: ""` + `firstMessageMode:
+"assistant-speaks-first-with-model-generated-message"`.
 
 - Recepcao → Credito, Cambio
 - Credito → Entrevista, Cambio, Recepcao
